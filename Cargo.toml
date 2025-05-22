@@ -1,0 +1,12 @@
+[package]
+name = "tui_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = "0.9.1"
+color-eyre = "0.5.11"
+crossterm = "0.29.0"
+ratatui = "0.29.0"
+chrono = "0.4.41"
+sysinfo = "0.29"
