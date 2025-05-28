@@ -1,4 +1,4 @@
-use sysinfo::{Disk, DiskExt, System, SystemExt};
+use sysinfo::{DiskExt, System, SystemExt};
 use std::process::Command;
 use std::path::Path;
 
@@ -6,6 +6,13 @@ use crate::app::TopError;
 
 pub enum FileType {
     Normal,
+    Markdown,
+    Code,
+    Document,
+    Audio,
+    Video,
+    Image,
+    Zip,
     Folder,
 }
 
@@ -18,6 +25,8 @@ pub struct DiskInfo {
 pub struct FileUnit {
     pub name: String,
     pub file_type: FileType,
+    pub occupy: f64,
+    pub path: String,
 }
 
 pub struct FileManage {
@@ -29,22 +38,30 @@ pub struct FileManage {
 
 impl FileUnit {
     pub fn new() -> Self {
-        Self { name: String::new(), file_type: FileType::Normal}
+        Self { name: String::new(), file_type: FileType::Normal, occupy: 0.0, path: String::new()}
     }
 
     pub fn clone(&self) -> Self {
         Self { 
             name: self.name.clone(),
+            occupy: self.occupy.clone(),
+            path: self.path.clone(),
             file_type: match self.file_type {
-                FileType::Folder => FileType::Folder,
+                FileType::Zip => FileType::Zip,
+                FileType::Code => FileType::Code,
+                FileType::Image => FileType::Image,
+                FileType::Audio => FileType::Audio,
+                FileType::Video => FileType::Video,
                 FileType::Normal => FileType::Normal,
+                FileType::Folder => FileType::Folder,
+                FileType::Markdown => FileType::Markdown,
+                FileType::Document => FileType::Document,
             }
         }
     }
 
-    pub fn clear(&mut self) {
-        self.name.clear();
-        self.file_type = FileType::Normal;
+    pub fn is_empty(&self) -> bool {
+        return self.name.is_empty();
     }
 }
 
@@ -54,22 +71,6 @@ impl DiskInfo {
             name: String::new(),
             all_space: 0.0,
             available_space: 0.0,
-        }
-    }
-
-    pub fn clone(&mut self) -> Self {
-        Self {
-            name: self.name.clone(),
-            all_space: self.all_space.clone(),
-            available_space: self.available_space.clone(),
-        }
-    }
-
-    pub fn copy(&mut self) -> Self {
-        Self {
-            name: self.name.clone(),
-            all_space: self.all_space.clone(),
-            available_space: self.available_space.clone(),
         }
     }
 }
@@ -133,6 +134,45 @@ impl FileManage {
      */
     pub fn select_some_file(&mut self, file: &FileUnit) {
         self.select = file.clone();
+        self.select.path = self.now_path.clone() + &"/".to_string() + &file.name.clone();
+    }
+
+    /* 
+     * @概述      复制当前选中的文件到当前的路径
+     */
+    pub fn copy_select_file(&mut self) -> bool {
+        if !self.select.is_empty() {
+            if Self::is_path(&self.select.path) {
+                let output = Command::new("cp")
+                    .arg(self.select.path.clone())
+                    .arg(self.now_path.clone())
+                    .output();
+                match output {
+                    Ok(_) => return true,
+                    Err(_) => {},
+                }
+            }
+        }
+        return false;
+    }
+
+    /* 
+     * @概述      剪切当前选中的文件到当前路径
+     */
+    pub fn cut_select_file(&mut self) -> bool {
+        if !self.select.is_empty() {
+            if Self::is_path(&self.select.path) {
+                let output = Command::new("cp")
+                    .arg(self.select.path.clone())
+                    .arg(self.now_path.clone())
+                    .output();
+                match output {
+                    Ok(_) => return true,
+                    Err(_) => {},
+                }
+            }
+        }
+        return false;
     }
 
     /*
@@ -150,7 +190,7 @@ impl FileManage {
                     FileType::Folder => {
                         return_vec.push("[".to_string() + &deal_unit.name.clone() + &"]".to_string());
                     },
-                    FileType::Normal => {
+                    _ => {
                         return_vec.push(deal_unit.name.clone());
                     },
                 }
@@ -191,10 +231,6 @@ impl FileManage {
      */
     pub fn enter_new_folder(&mut self, folder: &FileUnit) -> Result<String, TopError> {
         match folder.file_type {
-            FileType::Normal => {
-                return Err(TopError::ErrorInformation("not folder".to_string()));
-            },
-
             FileType::Folder => {
                 if !folder.name.is_empty() && Self::is_path(&self.now_path) {
                     let new_path = self.now_path.clone() + &String::from("/") + &folder.name.clone();
@@ -205,6 +241,10 @@ impl FileManage {
                 } else {
                     return Err(TopError::ErrorInformation("this not path".to_string()));
                 }
+            },
+
+            _ => {
+                return Err(TopError::ErrorInformation("not folder".to_string()));
             },
         }
     }
@@ -240,7 +280,7 @@ impl FileManage {
     /*
      * @概述      调用ls -l命令读取path参数路径下的内容
      * @参数1     String，路径字符串
-     * @返回值    Result<String, TopError>
+     * @返回值    Result<Vec<FileUnit>, TopError>
      */
     fn get_file_three(path: String) -> Result<Vec<FileUnit>, TopError> {
         let output = Command::new("ls")
@@ -272,10 +312,50 @@ impl FileManage {
                 let data:Vec<&str> = line.split_whitespace().collect();
                 if let Some(str) = data.get(8) {
                     now_file_unit.name = str.to_string();
-                    file_tree.push(now_file_unit);
                 }
+                if let Some(str_size) = data.get(4) {
+                    match str_size.trim().parse::<u64>() {
+                        Ok(num) => {
+                            now_file_unit.occupy = num as f64 / 1024.0;
+                        },
+                        Err(_) => {},
+                    }
+                }
+                if let Some(str) = data.get(8) {
+                    match now_file_unit.file_type {
+                        FileType::Normal => {
+                            if let Some(suffix) = Self::get_file_name_suffix(str.to_string()) {
+                                if suffix == "txt" || suffix == "doc" || suffix == "docx" {
+                                    now_file_unit.file_type = FileType::Document;
+                                } else if suffix == "mp4" {
+                                    now_file_unit.file_type = FileType::Video;
+                                } else if suffix == "mp3" || suffix == "wav" {
+                                    now_file_unit.file_type = FileType::Audio;
+                                } else if suffix == "zip" || suffix == "7z" || suffix == "rar" {
+                                    now_file_unit.file_type = FileType::Zip;
+                                } else if suffix == "md" {
+                                    now_file_unit.file_type = FileType::Markdown;
+                                } else if suffix == "png" || suffix == "jpg" {
+                                    now_file_unit.file_type = FileType::Image;
+                                } else if suffix == "rs" || suffix == "c" || suffix == "py" || suffix == "cpp" {
+                                    now_file_unit.file_type = FileType::Code;
+                                }
+                            }
+                        },
+                        _ => {},
+                    }
+                }
+                file_tree.push(now_file_unit);
             }
             return Ok(file_tree);
         }
+    }
+
+    fn get_file_name_suffix(filename: String) -> Option<String> {
+        Path::new(&filename)
+            .extension()  // 获取后缀部分（不包括点）
+            .and_then(|ext| ext.to_str())  // 转换为字符串
+            .filter(|s| !s.is_empty())  // 过滤掉空字符串
+            .map(|s| s.to_string())  // 转换为 String}
     }
 }

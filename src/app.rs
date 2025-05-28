@@ -40,6 +40,7 @@ pub struct App {
     input_history: Vec<String>,
     mooncell: Mooncell,
     model: DisplayModel,
+    file_manage_tips: String,
     list_state: ListState,
 }
 impl App {
@@ -51,6 +52,7 @@ impl App {
             user_input: String::new(),
             input_history: Vec::new(),
             mooncell: Mooncell::new(),
+            file_manage_tips: String::new(),
             model: DisplayModel::Top, 
             list_state: state,
         }
@@ -116,13 +118,36 @@ impl App {
     fn draw(&mut self, frame: &mut Frame) {
 // ************************************** 根据工作模式绘制ui ************************************** //
         match self.model {
+            // ************************** 文件管理模式 ************************** //
             DisplayModel::FileManage => {
+                let layout_filemanage = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(vec![
+                        Constraint::Percentage(70),
+                        Constraint::Fill(1),
+                    ])
+                    .split(frame.area());
+                let file_message = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![
+                        Constraint::Length(1),
+                        Constraint::Length(1),    // 名字
+                        Constraint::Length(1),    // 类型
+                        Constraint::Length(1),    // 占用空间
+                        Constraint::Length(2),    // 分割
+                        Constraint::Length(2),    // 选中的文件名
+                        Constraint::Length(2),    // 分割
+                        Constraint::Length(2),    // 文件操作提示
+                    ])
+                    .split(layout_filemanage[1]);
+
+                // 文件列表
                 let tree_str_list = match self.mooncell.get_file_three_str() {
                     Ok(str_list) => str_list,
                     Err(top_error) => vec![Mooncell::toperror_to_string(&top_error)],
                 };
                 let file_tree_list = List::new(tree_str_list)
-                    .block(Block::bordered().title("file manage"))
+                    .block(Block::bordered().title(self.mooncell.file_manage.now_path.clone()))
                     .highlight_style(
                         Style::default()
                             .bg(Color::LightBlue)
@@ -130,10 +155,53 @@ impl App {
                             .add_modifier(Modifier::BOLD),
                     )
                     .highlight_symbol(">> ");
-                let list_size = frame.area();
-                frame.render_stateful_widget(file_tree_list, list_size, &mut self.list_state);
+                frame.render_stateful_widget(file_tree_list, layout_filemanage[0], &mut self.list_state);
+                
+                // 文件名、文件类型、文件大小
+                let mut str_file_name = String::new();
+                let mut str_file_type = String::new();
+                let mut str_file_size = String::new();
+                if let Some(file_list_pos) = self.list_state.selected() {
+                    if let Some(file_select) = self.mooncell.file_manage.file_tree.get(file_list_pos) {
+                        str_file_name = file_select.name.clone();
+                        str_file_type = Mooncell::filetype_to_string(&file_select.file_type);
+                        if file_select.occupy < 1024.0 {
+                            str_file_size = Self::float_to_string(file_select.occupy) + &"KB".to_string();
+                        } else if file_select.occupy < 1048576.0 {
+                            str_file_size = Self::float_to_string(file_select.occupy / 1024.0) + &"MB".to_string();
+                        } else {
+                            str_file_size = Self::float_to_string(file_select.occupy / 1024.0 / 1024.0) + &"GB".to_string();
+                        }
+                    }
+                } else {
+                    str_file_name = String::from("get name error");
+                    str_file_type = String::from("get type error");
+                    str_file_size = String::from("get file occupy error");
+                }
+                let file_name_p = Paragraph::new(str_file_name.clone())
+                    .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(file_name_p, file_message[1]);
+
+                let file_type_p = Paragraph::new(str_file_type.clone())
+                    .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(file_type_p, file_message[2]);
+                
+                let file_size_p = Paragraph::new(str_file_size.clone())
+                    .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(file_size_p, file_message[3]);
+
+                // 选中文件信息
+                let select_file_name_p = Paragraph::new(self.mooncell.file_manage.select.name.clone())
+                    .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(select_file_name_p, file_message[5]);
+
+                // 提示str
+                let tips_p = Paragraph::new(self.file_manage_tips.clone())
+                    .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(tips_p, file_message[7]);
             }
             
+            // ************************** 资源管理模式 ************************** //
             DisplayModel::Top => {
                 let layout_top = Layout::default()
                     .direction(Direction::Vertical)
@@ -421,6 +489,7 @@ impl App {
             }
             KeyCode::Tab => {
                 self.model = DisplayModel::Top;
+                self.file_manage_tips.clear();
             }
             KeyCode::Enter => {
                 if let Some(file_list_pos) = self.list_state.selected() {
@@ -429,8 +498,18 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('c') => {
+                if !self.mooncell.file_manage.copy_select_file() {
+                    self.file_manage_tips = String::from("copy faill");
+                }
+            }
+            KeyCode::Char('x') => {
+                if !self.mooncell.file_manage.cut_select_file() {
+                    self.file_manage_tips = String::from("cut faill");
+                }
+            }
             KeyCode::Backspace => {
-                self.mooncell.back_layer();
+                let _ = self.mooncell.file_manage.back_upper_layer();
             }
             _ => {}
         }
@@ -464,7 +543,7 @@ impl App {
     fn file_list_previous(&mut self) {
         let i = match self.list_state.selected() {
             Some(i) => {
-                if i >= self.mooncell.file_manage.file_tree.len().saturating_sub(1) {
+                if i > self.mooncell.file_manage.file_tree.len().saturating_sub(1) {
                     0
                 } else {
                     if i == 0 {

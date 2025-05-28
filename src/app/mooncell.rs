@@ -1,4 +1,4 @@
-use std::{clone, thread};
+use std::thread;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,7 +10,7 @@ mod info;
 use info::{CPU, Memory, Info, CpuStatData};
 
 mod filemanage;
-use filemanage::{FileType, FileUnit, FileManage, DiskInfo};
+use filemanage::{FileType, FileUnit, FileManage};
 
 
 
@@ -32,23 +32,10 @@ impl Mooncell {
             info: Info::new(),
             thread_sleep_time: 1000,
             file_manage: FileManage::new(),
-            version: String::from("test-v_0.0.3"),
+            version: String::from("test-v_0.0.4"),
             thread_run: Arc::new(AtomicBool::new(true)),
             logo: String::from("    __  ___                  ______     ____\n   /  |/  /___  ____  ____  / ____/__  / / /\n  / /|_/ / __ \\/ __ \\/ __ \\/ /   / _ \\/ / / \n / /  / / /_/ / /_/ / / / / /___/  __/ / /  \n/_/  /_/\\____/\\____/_/ /_/\\____/\\___/_/_/   "),
         }
-    }
-    
-    pub fn command_deal(&mut self, command: String) {
-        if command.eq("exit") {
-            self.run = false;
-        } else if command.eq("stop") {
-            self.thread_run.store(false, Ordering::Release);
-        }
-    }
-    
-    pub fn exit(&mut self) {
-        self.thread_run.store(false, Ordering::Relaxed);
-        self.run = false;
     }
 
 /**********************************************文件管理**********************************************/
@@ -69,14 +56,10 @@ impl Mooncell {
             FileType::Folder => {
                 let _ = self.file_manage.enter_new_folder(file);
             },
-            FileType::Normal => {
+            _ => {
                 self.file_manage.select_some_file(file);
             },
         }
-    }
-
-    pub fn back_layer(&mut self) {
-        let _ = self.file_manage.back_upper_layer();
     }
 
     pub fn create_disk_list(&mut self) -> Vec<(&str, u64)> {
@@ -168,6 +151,7 @@ impl Mooncell {
         });
     }
 
+/**********************************************其他函数**********************************************/
     /*
     * @概述      将toperror转化成string的提示，用于UI绘制中如果数据返回TopError的情况
     * @参数1     TopError
@@ -183,5 +167,45 @@ impl Mooncell {
             TopError::ReadError => return String::from("can`t read file"),
             TopError::ErrorInformation(str) => return str.clone(),
         }
+    }
+
+    /*
+    * @概述      将FIleType转化成string的提示
+    * @参数1     TopError
+    * @返回值    String
+    */
+    pub fn filetype_to_string(file_type: &FileType) -> String {
+        match file_type {
+            FileType::Normal => return String::from("File"),
+            FileType::Zip => return String::from("Zip File"),
+            FileType::Folder => return String::from("Folder"),
+            FileType::Audio => return String::from("Audio File"),
+            FileType::Video => return String::from("Video File"),
+            FileType::Image => return String::from("Image File"),
+            FileType::Code => return String::from("Code source"),
+            FileType::Markdown => return String::from("Markdown"),
+            FileType::Document => return String::from("Document File"),
+        }
+    }
+    
+    /*
+    * @概述      处理一部分指令
+    * @参数1     String
+    */
+    pub fn command_deal(&mut self, command: String) {
+        if command.eq("exit") {
+            self.run = false;
+        } else if command.eq("stop") {
+            self.thread_run.store(false, Ordering::Release);
+        }
+    }
+    
+    
+    /*
+    * @概述      退出
+    */
+    pub fn exit(&mut self) {
+        self.thread_run.store(false, Ordering::Relaxed);
+        self.run = false;
     }
 }
