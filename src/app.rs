@@ -37,11 +37,13 @@ enum DisplayModel {
 
 pub struct App {
     user_input: String,
-    input_history: Vec<String>,
     mooncell: Mooncell,
     model: DisplayModel,
-    file_manage_tips: String,
-    list_state: ListState,
+
+    input_history: Vec<String>,    // 显示cpu占用历史
+    list_state: ListState,    // 文件管理列表的转中状态
+    file_manage_tips: String,    // 用于显示文件管理状态的提示
+    disk_show_list: Vec<String>,    // 临时存放disk显示字符串的容器
 }
 impl App {
     pub fn new() -> Self {
@@ -49,12 +51,13 @@ impl App {
         state.select_first();
 
         Self {
+            list_state: state,
+            model: DisplayModel::Top, 
             user_input: String::new(),
             input_history: Vec::new(),
             mooncell: Mooncell::new(),
+            disk_show_list: Vec::new(),
             file_manage_tips: String::new(),
-            model: DisplayModel::Top, 
-            list_state: state,
         }
     }
 
@@ -78,14 +81,14 @@ impl App {
             
             match self.model {
                 DisplayModel::FileManage => {
-                    self.mooncell.refresh_file_tree();
+                    self.mooncell.file_manage.refresh_file_tree();
                 },
                 DisplayModel::Top => {
                     // 刷新数据
                     if count == 10 {
                         count = 0;
                         self.mooncell.info.refresh_date();
-                        self.mooncell.refresh_disk_list();
+                        self.mooncell.info.refresh_disks();
                         
                         self.mooncell.info.cpu_info.temp = rx_temp.recv().unwrap();
                         self.mooncell.info.cpu_info.power = rx_power.recv().unwrap();
@@ -130,14 +133,14 @@ impl App {
                 let file_message = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints(vec![
-                        Constraint::Length(1),
+                        Constraint::Length(1),    // 分割
                         Constraint::Length(1),    // 名字
                         Constraint::Length(1),    // 类型
                         Constraint::Length(1),    // 占用空间
                         Constraint::Length(2),    // 分割
-                        Constraint::Length(2),    // 选中的文件名
+                        Constraint::Length(1),    // 选中的文件名
                         Constraint::Length(2),    // 分割
-                        Constraint::Length(2),    // 文件操作提示
+                        Constraint::Length(1),    // 文件操作提示
                     ])
                     .split(layout_filemanage[1]);
 
@@ -262,7 +265,7 @@ impl App {
                     .split(systeam_message[4]);
 
                 // logo
-                let logo_str = self.mooncell.logo.clone() + &"\nmoooncell version ".to_string() + &self.mooncell.version.clone();
+                let logo_str = format!("{}\nmoooncell version {}", self.mooncell.logo, self.mooncell.version);
                 let logo_p = Paragraph::new(logo_str.clone())
                         .alignment(ratatui::layout::Alignment::Center)
                         .style(Style::default())
@@ -399,7 +402,7 @@ impl App {
                 if memory_total_use != 0.0 && memory_usage_use != 0.0 {
                     let memory_usage_number_str = Self::float_to_string(memory_usage_use);
                     let memory_total_number_str = Self::float_to_string(memory_total_use);
-                    let memory_usage_str = String::from("Memory: ") + &memory_total_number_str + &'/'.to_string() + &memory_usage_number_str + &"GB".to_string();
+                    let memory_usage_str = format!("Memory: {}/{}GB", memory_total_number_str, memory_usage_number_str);
 
                     let memory_usage_s = Sparkline::default()
                         .block(
@@ -414,7 +417,7 @@ impl App {
                 }
 
                 // 硬盘信息
-                let disk_usage_list = self.mooncell.create_disk_list();
+                let disk_usage_list = self.create_disk_list();
                 let disk_barchart = BarChart::default()
                     .block(Block::default().title("disk infomation").borders(Borders::ALL))
                     .data(&disk_usage_list)
@@ -628,6 +631,25 @@ impl App {
             None => return str.clone(),
             Some(pos) => str[..pos+2].to_string(),
         }
+    }
+
+    pub fn create_disk_list(&mut self) -> Vec<(&str, u64)> {
+        self.disk_show_list.clear();
+        let mut usage_list: Vec<(&str, u64)> = Vec::new();
+
+        for disk in &self.mooncell.info.disks {
+            let usage = if disk.all_space == 0.0 {
+                0
+            } else {
+                let used = disk.all_space - disk.available_space;
+                ((used * 100.0) / disk.all_space).min(100.0) as u64
+            };
+            //let name_str = format!("{}{}/{}", disk.name, disk.all_space, disk.available_space);
+            //self.disk_show_list.push(name_str);
+            let tmp_data = (disk.name.as_str(), usage);
+            usage_list.push(tmp_data.clone());
+        }
+        return usage_list;
     }
 }
 

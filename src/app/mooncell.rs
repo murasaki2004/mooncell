@@ -32,20 +32,13 @@ impl Mooncell {
             info: Info::new(),
             thread_sleep_time: 1000,
             file_manage: FileManage::new(),
-            version: String::from("test-v_0.0.4"),
+            version: String::from("test-v_0.0.4 "),
             thread_run: Arc::new(AtomicBool::new(true)),
             logo: String::from("    __  ___                  ______     ____\n   /  |/  /___  ____  ____  / ____/__  / / /\n  / /|_/ / __ \\/ __ \\/ __ \\/ /   / _ \\/ / / \n / /  / / /_/ / /_/ / / / / /___/  __/ / /  \n/_/  /_/\\____/\\____/_/ /_/\\____/\\___/_/_/   "),
         }
     }
 
 /**********************************************文件管理**********************************************/
-    pub fn refresh_file_tree(&mut self) {
-        self.file_manage.refresh_file_tree();
-    }
-
-    pub fn refresh_disk_list(&mut self) {
-        self.file_manage.refresh_disks();
-    }
 
     pub fn get_file_three_str(&self) -> Result<Vec<String>, TopError> {
         self.file_manage.create_name_list()
@@ -60,16 +53,6 @@ impl Mooncell {
                 self.file_manage.select_some_file(file);
             },
         }
-    }
-
-    pub fn create_disk_list(&mut self) -> Vec<(&str, u64)> {
-        let mut usage_list: Vec<(&str, u64)> = Vec::new();
-        for disk in &self.file_manage.sys_disks {
-            let usage: u64 = (disk.all_space / disk.available_space) as u64;
-            let tmp_data = (disk.name.as_str(), usage);
-            usage_list.push(tmp_data);
-        }
-        return usage_list;
     }
 
 /**********************************************资源监控**********************************************/
@@ -199,7 +182,6 @@ impl Mooncell {
             self.thread_run.store(false, Ordering::Release);
         }
     }
-    
     
     /*
     * @概述      退出

@@ -5,6 +5,7 @@ use std::result::Result::Ok;
 use std::net::{UdpSocket, IpAddr};
 use chrono::{DateTime, Local};
 use std::process::Command;
+use sysinfo::{DiskExt, System, SystemExt};
 
 use crate::app::TopError;
 
@@ -14,6 +15,7 @@ pub struct Info {
     pub cpu_info: CPU,
     pub memory_info: Memory,
     pub ipv4: String,
+    pub disks: Vec<DiskInfo>,
 }
 
 
@@ -32,6 +34,12 @@ pub struct Memory {
     pub usage: Result<f64, TopError>,
     // 内存占用率历史记录，只保留50条记录
     pub usage_history: Vec<u64>,
+}
+
+pub struct DiskInfo {
+    pub name: String,
+    pub all_space: f64,    // 总空间
+    pub available_space: f64,    // 可用空间
 }
 
 pub struct CpuStatData {
@@ -73,7 +81,34 @@ impl Info {
             os_name: Info::get_os_name(),
             cpu_info: CPU::new(),
             memory_info: Memory::new(),
+            disks: Vec::new(),
             ipv4: ip_str,
+        }
+    }
+
+    /* 
+     * @概述      通过sysinfo查询系统下的所有硬盘
+     */
+    pub fn refresh_disks(&mut self) {
+        let sys = System::new_all();
+        for disk in sys.disks() {
+            let mut data = DiskInfo::new();
+
+            // 获取磁盘名称（挂载点）
+            match disk.name().to_str() {
+                Some(str) => data.name = str.to_string(),
+                None => continue,
+            };
+            // 获取总容量（字节）
+            let total = disk.total_space();
+            // 获取可用空间（字节）
+            let available = disk.available_space();
+
+            // 转换为 GB 单位
+            data.all_space = total as f64 / (1024.0 * 1024.0 * 1024.0);
+            data.available_space = available as f64 / (1024.0 * 1024.0 * 1024.0);
+
+            self.disks.push(data);
         }
     }
 
@@ -118,6 +153,16 @@ impl Info {
 
         let local_addr = socket.local_addr().ok()?;
         Some(local_addr.ip())
+    }
+}
+
+impl DiskInfo {
+    pub fn new() -> Self {
+        Self {
+            name: String::new(),
+            all_space: 0.0,
+            available_space: 0.0,
+        }
     }
 }
 

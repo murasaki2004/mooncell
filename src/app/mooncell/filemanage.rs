@@ -1,4 +1,3 @@
-use sysinfo::{DiskExt, System, SystemExt};
 use std::process::Command;
 use std::path::Path;
 
@@ -16,12 +15,6 @@ pub enum FileType {
     Folder,
 }
 
-pub struct DiskInfo {
-    pub name: String,
-    pub all_space: f64,    // 总空间
-    pub available_space: f64,    // 可用空间
-}
-
 pub struct FileUnit {
     pub name: String,
     pub file_type: FileType,
@@ -33,7 +26,6 @@ pub struct FileManage {
     pub file_tree: Vec<FileUnit>,
     pub select: FileUnit,
     pub now_path: String,
-    pub sys_disks: Vec<DiskInfo>,
 }
 
 impl FileUnit {
@@ -65,49 +57,12 @@ impl FileUnit {
     }
 }
 
-impl DiskInfo {
-    pub fn new() -> Self {
-        Self {
-            name: String::new(),
-            all_space: 0.0,
-            available_space: 0.0,
-        }
-    }
-}
-
 impl FileManage {
     pub fn new() -> Self {
         Self{
             file_tree: Vec::new(), 
             select: FileUnit::new(), 
             now_path: String::new(),
-            sys_disks: Vec::new(),
-        }
-    }
-
-    /* 
-     * @概述      通过sysinfo查询系统下的所有硬盘
-     */
-    pub fn refresh_disks(&mut self) {
-        let sys = System::new_all();
-        for disk in sys.disks() {
-            let mut data = DiskInfo::new();
-
-            // 获取磁盘名称（挂载点）
-            match disk.name().to_str() {
-                Some(str) => data.name = str.to_string(),
-                None => continue,
-            };
-            // 获取总容量（字节）
-            let total = disk.total_space();
-            // 获取可用空间（字节）
-            let available = disk.available_space();
-
-            // 转换为 GB 单位
-            data.all_space = total as f64 / (1024.0 * 1024.0 * 1024.0);
-            data.available_space = available as f64 / (1024.0 * 1024.0 * 1024.0);
-
-            self.sys_disks.push(data);
         }
     }
 
@@ -134,7 +89,7 @@ impl FileManage {
      */
     pub fn select_some_file(&mut self, file: &FileUnit) {
         self.select = file.clone();
-        self.select.path = self.now_path.clone() + &"/".to_string() + &file.name.clone();
+        self.select.path = format!("{}/{}", self.now_path, file.name.clone());
     }
 
     /* 
@@ -188,7 +143,7 @@ impl FileManage {
             for deal_unit in self.file_tree.iter() {
                 match deal_unit.file_type {
                     FileType::Folder => {
-                        return_vec.push("[".to_string() + &deal_unit.name.clone() + &"]".to_string());
+                        return_vec.push(format!("[{}]", deal_unit.name));
                     },
                     _ => {
                         return_vec.push(deal_unit.name.clone());
@@ -205,21 +160,32 @@ impl FileManage {
      * @返回值    Result<String, TopError>
      */
     pub fn back_upper_layer(&mut self) -> Result<String, TopError> {
-        if Self::is_path(&self.now_path) {
-            if let Some(pos) = self.now_path.rfind('/') {
-                let new_path = self.now_path[0..pos].to_string().clone();
-                if Self::is_path(&new_path) {
-                    self.now_path = new_path.clone();
-                    self.refresh_file_tree();
-                    return Ok(self.now_path.clone());
-                } else {
-                    return Err(TopError::EmptyError);
+        let current_path = Path::new(self.now_path.as_str());
+        let parent_path = current_path.parent();
+
+        match parent_path {
+            Some(path) => {
+                let new_path = path
+                    .to_str()
+                    .ok_or_else(|| TopError::ErrorInformation("Invalid path encoding".to_string()))?
+                    .to_string();
+
+                if !path.exists() {
+                    return Err(TopError::ErrorInformation(format!("Path does not exist: {}", new_path)));
                 }
-            } else {
-                return Err(TopError::NotFindError);
+
+                self.now_path = new_path.clone();
+                self.refresh_file_tree();
+                Ok(new_path)
             }
-        } else {
-            return Err(TopError::ErrorInformation("this not path".to_string()));
+            None => {
+                // 当前路径是根目录（如 "/"），无上级路径
+                if current_path == Path::new("/") {
+                    return Err(TopError::NotFindError); // 或返回 Ok(current_path.to_string())？
+                } else {
+                    return Err(TopError::ErrorInformation("Invalid path".to_string()));
+                }
+            }
         }
     }
 
@@ -232,15 +198,28 @@ impl FileManage {
     pub fn enter_new_folder(&mut self, folder: &FileUnit) -> Result<String, TopError> {
         match folder.file_type {
             FileType::Folder => {
-                if !folder.name.is_empty() && Self::is_path(&self.now_path) {
-                    let new_path = self.now_path.clone() + &String::from("/") + &folder.name.clone();
-                    self.now_path = new_path.clone();
-                    self.file_tree.clear();
-                    self.refresh_file_tree();
-                    return Ok(new_path);
-                } else {
-                    return Err(TopError::ErrorInformation("this not path".to_string()));
+                if folder.name.is_empty() {
+                    return Err(TopError::EmptyError);
                 }
+
+                // 使用 PathBuf 处理路径拼接
+                let current_path = Path::new(self.now_path.as_str());
+                let new_path = current_path.join(&folder.name);
+
+                // 将 PathBuf 转换为 String，处理跨平台兼容性
+                let new_path_str = new_path
+                    .to_str()
+                    .ok_or_else(|| TopError::ErrorInformation("Invalid path encoding".to_string()))?
+                    .to_string();
+
+                if !new_path.exists() {
+                    return Err(TopError::ErrorInformation(format!("Path does not exist: {}", new_path_str)));
+                }
+
+                self.now_path = new_path_str;
+                self.file_tree.clear();
+                self.refresh_file_tree();
+                Ok(self.now_path.clone())
             },
 
             _ => {
@@ -295,60 +274,53 @@ impl FileManage {
         // 如果输出为空，返回 EmptyError
         if output_str.is_empty() {
             return Err(TopError::EmptyError);
-        } else {
-            let mut file_tree: Vec<FileUnit> = Vec::new();
-            for line in output_str.lines() {
-                let mut now_file_unit = FileUnit::new();
-                if let Some(str) = line.chars().next() {
-                    if str == '-' {
-                        now_file_unit.file_type = FileType::Normal;
-                    } else if str == 'd' {
-                        now_file_unit.file_type = FileType::Folder;
-                    } else {
-                        continue;
-                    }
-                }
-
-                let data:Vec<&str> = line.split_whitespace().collect();
-                if let Some(str) = data.get(8) {
-                    now_file_unit.name = str.to_string();
-                }
-                if let Some(str_size) = data.get(4) {
-                    match str_size.trim().parse::<u64>() {
-                        Ok(num) => {
-                            now_file_unit.occupy = num as f64 / 1024.0;
-                        },
-                        Err(_) => {},
-                    }
-                }
-                if let Some(str) = data.get(8) {
-                    match now_file_unit.file_type {
-                        FileType::Normal => {
-                            if let Some(suffix) = Self::get_file_name_suffix(str.to_string()) {
-                                if suffix == "txt" || suffix == "doc" || suffix == "docx" {
-                                    now_file_unit.file_type = FileType::Document;
-                                } else if suffix == "mp4" {
-                                    now_file_unit.file_type = FileType::Video;
-                                } else if suffix == "mp3" || suffix == "wav" {
-                                    now_file_unit.file_type = FileType::Audio;
-                                } else if suffix == "zip" || suffix == "7z" || suffix == "rar" {
-                                    now_file_unit.file_type = FileType::Zip;
-                                } else if suffix == "md" {
-                                    now_file_unit.file_type = FileType::Markdown;
-                                } else if suffix == "png" || suffix == "jpg" {
-                                    now_file_unit.file_type = FileType::Image;
-                                } else if suffix == "rs" || suffix == "c" || suffix == "py" || suffix == "cpp" {
-                                    now_file_unit.file_type = FileType::Code;
-                                }
-                            }
-                        },
-                        _ => {},
-                    }
-                }
-                file_tree.push(now_file_unit);
-            }
-            return Ok(file_tree);
         }
+
+        let mut file_tree: Vec<FileUnit> = Vec::new();
+        for line in output_str.lines() {
+            let data:Vec<&str> = line.split_whitespace().collect();
+            if data.len() < 9 {   // 跳过格式不完整的行
+                continue;
+            }
+            
+            let mut now_file_unit = FileUnit::new();
+            if let Some(str) = line.chars().next() {
+                if str == '-' {
+                    now_file_unit.file_type = FileType::Normal;
+                } else if str == 'd' {
+                    now_file_unit.file_type = FileType::Folder;
+                } else {
+                    continue;
+                }
+            }
+
+            if let Some(str_size) = data.get(4) {
+                match str_size.trim().parse::<u64>() {
+                    Ok(num) => {
+                        now_file_unit.occupy = num as f64 / 1024.0;
+                    },
+                    Err(_) => {},
+                }
+            }
+            let name = data.iter().skip(8).cloned().collect::<Vec<_>>().join(" ");
+            now_file_unit.name = name;
+                if let FileType::Normal = now_file_unit.file_type {
+                    if let Some(suffix) = Self::get_file_name_suffix(now_file_unit.name.clone()) {
+                        match suffix.as_str() {
+                            "txt" | "doc" | "docx" => now_file_unit.file_type = FileType::Document,
+                            "mp4" => now_file_unit.file_type = FileType::Video,
+                            "mp3" | "wav" => now_file_unit.file_type = FileType::Audio,
+                            "zip" | "7z" | "rar" => now_file_unit.file_type = FileType::Zip,
+                            "md" => now_file_unit.file_type = FileType::Markdown,
+                            "png" | "jpg" => now_file_unit.file_type = FileType::Image,
+                            "rs" | "c" | "py" | "cpp" | "h" => now_file_unit.file_type = FileType::Code,
+                            _ => {}
+                        }
+                    }
+                }
+            file_tree.push(now_file_unit);
+        }
+        return Ok(file_tree);
     }
 
     fn get_file_name_suffix(filename: String) -> Option<String> {
