@@ -1,9 +1,10 @@
 use core::{error, num};
+use std::fmt::format;
 use std::fs::{FileTimes, FileType};
 use std::isize;
 use std::{clone, default, io, process::exit};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 // 
 mod mooncell;
 use mooncell::Mooncell;
@@ -44,6 +45,7 @@ pub struct App {
     list_state: ListState,    // 文件管理列表的转中状态
     file_manage_tips: String,    // 用于显示文件管理状态的提示
     disk_show_list: Vec<String>,    // 临时存放disk显示字符串的容器
+    last_enter_time: Option<Instant>,
 }
 impl App {
     pub fn new() -> Self {
@@ -52,26 +54,17 @@ impl App {
 
         Self {
             list_state: state,
-            model: DisplayModel::Top, 
+            last_enter_time: None,
             user_input: String::new(),
             input_history: Vec::new(),
             mooncell: Mooncell::new(),
             disk_show_list: Vec::new(),
+            model: DisplayModel::Top, 
             file_manage_tips: String::new(),
         }
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        let (tx_usage, rx_usage) = mpsc::channel();
-        let (tx_temp, rx_temp) = mpsc::channel();
-        let (tx_memory, rx_memory) = mpsc::channel();
-        let (tx_power, rx_power) = mpsc::channel();
-
-        Mooncell::refresh_cpu_usage(&mut self.mooncell, tx_usage);
-        Mooncell::refresh_mem_usage(&mut self.mooncell, tx_memory);
-        Mooncell::refresh_cpu_temp(&mut self.mooncell, tx_temp);
-        Mooncell::refresh_cpu_power(&mut self.mooncell, tx_power);
-
         let mut count: u16 = 0;
     
         while self.mooncell.run {
@@ -81,33 +74,13 @@ impl App {
             
             match self.model {
                 DisplayModel::FileManage => {
-                    self.mooncell.file_manage.refresh_file_tree();
+                    self.mooncell.file_manage.refresh_file_list();
                 },
                 DisplayModel::Top => {
                     // 刷新数据
                     if count == 10 {
                         count = 0;
-                        self.mooncell.info.refresh_date();
-                        self.mooncell.info.refresh_disks();
-                        
-                        self.mooncell.info.cpu_info.temp = rx_temp.recv().unwrap();
-                        self.mooncell.info.cpu_info.power = rx_power.recv().unwrap();
-                        
-                        self.mooncell.info.cpu_info.usage = rx_usage.recv().unwrap();
-                        match &self.mooncell.info.cpu_info.usage {
-                            Ok(data) => {
-                                self.mooncell.info.cpu_info.usage_history_push(data[0] as u64);
-                            },
-                            Err(_) => {},
-                        };
-
-                        self.mooncell.info.memory_info.usage = rx_memory.recv().unwrap();
-                        match self.mooncell.info.memory_info.usage {
-                            Ok(data) => {
-                                self.mooncell.info.memory_info.usage_history_push(data as u64);
-                            },
-                            Err(_) => {},
-                        }
+                        self.mooncell.info.refresh_all();
                     } else {
                         count = count + 1;
                     }
@@ -123,13 +96,20 @@ impl App {
         match self.model {
             // ************************** 文件管理模式 ************************** //
             DisplayModel::FileManage => {
+                let layout_all = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![
+                        Constraint::Fill(1),
+                        Constraint::Length(2),
+                    ])
+                    .split(frame.area());
                 let layout_filemanage = Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints(vec![
                         Constraint::Percentage(70),
                         Constraint::Fill(1),
                     ])
-                    .split(frame.area());
+                    .split(layout_all[0]);
                 let file_message = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints(vec![
@@ -138,19 +118,25 @@ impl App {
                         Constraint::Length(1),    // 类型
                         Constraint::Length(1),    // 占用空间
                         Constraint::Length(2),    // 分割
-                        Constraint::Length(1),    // 选中的文件名
-                        Constraint::Length(2),    // 分割
-                        Constraint::Length(1),    // 文件操作提示
+                        Constraint::Fill(0),    // 选中的文件名
+                        Constraint::Length(1),    // 进行文件操作的提示
                     ])
                     .split(layout_filemanage[1]);
+                
+                // tips
+                let tips_str = String::from("switch to top[tab]    exit[esc]\r\nReturn to the previous directory[backspace]    Enter folder[enter]");
+                let tips_p = Paragraph::new(tips_str.clone())
+                        .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(tips_p, layout_all[1]);
 
                 // 文件列表
-                let tree_str_list = match self.mooncell.get_file_three_str() {
-                    Ok(str_list) => str_list,
-                    Err(top_error) => vec![Mooncell::toperror_to_string(&top_error)],
+                let tree_str_list = self.mooncell.file_manage.create_name_list();
+                let path_str = match self.mooncell.file_manage.get_path_str() {
+                    Some(str) => str.to_string(),
+                    None => "...".to_string(),
                 };
                 let file_tree_list = List::new(tree_str_list)
-                    .block(Block::bordered().title(self.mooncell.file_manage.now_path.clone()))
+                    .block(Block::bordered().title(path_str))
                     .highlight_style(
                         Style::default()
                             .bg(Color::LightBlue)
@@ -165,15 +151,15 @@ impl App {
                 let mut str_file_type = String::new();
                 let mut str_file_size = String::new();
                 if let Some(file_list_pos) = self.list_state.selected() {
-                    if let Some(file_select) = self.mooncell.file_manage.file_tree.get(file_list_pos) {
+                    if let Some(file_select) = self.mooncell.file_manage.get_file_list().get(file_list_pos) {
                         str_file_name = file_select.name.clone();
                         str_file_type = Mooncell::filetype_to_string(&file_select.file_type);
                         if file_select.occupy < 1024.0 {
-                            str_file_size = Self::float_to_string(file_select.occupy) + &"KB".to_string();
+                            str_file_size = Mooncell::float_to_string(file_select.occupy as f32) + &"KB".to_string();
                         } else if file_select.occupy < 1048576.0 {
-                            str_file_size = Self::float_to_string(file_select.occupy / 1024.0) + &"MB".to_string();
+                            str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0) as f32) + &"MB".to_string();
                         } else {
-                            str_file_size = Self::float_to_string(file_select.occupy / 1024.0 / 1024.0) + &"GB".to_string();
+                            str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0 / 1024.0) as f32) + &"GB".to_string();
                         }
                     }
                 } else {
@@ -194,14 +180,14 @@ impl App {
                 frame.render_widget(file_size_p, file_message[3]);
 
                 // 选中文件信息
-                let select_file_name_p = Paragraph::new(self.mooncell.file_manage.select.name.clone())
+                let select_file_name_p = Paragraph::new(self.mooncell.create_select_str())
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(select_file_name_p, file_message[5]);
 
                 // 提示str
                 let tips_p = Paragraph::new(self.file_manage_tips.clone())
                     .alignment(ratatui::layout::Alignment::Center);
-                frame.render_widget(tips_p, file_message[7]);
+                frame.render_widget(tips_p, file_message[6]);
             }
             
             // ************************** 资源管理模式 ************************** //
@@ -211,6 +197,7 @@ impl App {
                     .constraints(vec![
                         Constraint::Min(8),
                         Constraint::Percentage(100),
+                        Constraint::Length(1),
                     ])
                     .split(frame.area());
                 let logo_systeam = Layout::default()
@@ -231,7 +218,8 @@ impl App {
                 let systeam_message = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints(vec![
-                        Constraint::Length(1),    // OS
+                        Constraint::Length(1),    // 空闲
+                        Constraint::Length(1),    // OS@host name
                         Constraint::Length(1),    // 系统日期
                         Constraint::Length(1),    // IP address
                         Constraint::Length(1),    // CPU 型号
@@ -262,7 +250,7 @@ impl App {
                         Constraint::Percentage(33),
                         Constraint::Percentage(33),
                     ])
-                    .split(systeam_message[4]);
+                    .split(systeam_message[5]);
 
                 // logo
                 let logo_str = format!("{}\nmoooncell version {}", self.mooncell.logo, self.mooncell.version);
@@ -273,48 +261,42 @@ impl App {
                         .block(Block::bordered());
                 frame.render_widget(logo_p, logo_systeam[0]);
 
-                // 系统名称
-                let os_name_p = Paragraph::new(self.mooncell.info.os_name.clone())
+                // tips
+                let tips_str = String::from("switch to filemanage[tab]    exit[esc]");
+                let tips_p = Paragraph::new(tips_str.clone())
+                        .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(tips_p, layout_top[2]);
+
+                // 系统名称+host名称
+                let os_name_p = Paragraph::new(format!("{}@{}", self.mooncell.info.os_name, self.mooncell.info.host_name))
                     .alignment(ratatui::layout::Alignment::Center);
-                frame.render_widget(os_name_p, systeam_message[0]);
+                frame.render_widget(os_name_p, systeam_message[1]);
                 
                 // 日期
-                let os_date_p = Paragraph::new(self.mooncell.info.sys_date.clone())
+                let os_date_p = Paragraph::new(self.mooncell.info.date.clone())
                     .alignment(ratatui::layout::Alignment::Center);
-                frame.render_widget(os_date_p, systeam_message[1]);
+                frame.render_widget(os_date_p, systeam_message[2]);
 
                 // 本机ip
-                let os_name_p = Paragraph::new(String::from("IP:") + &self.mooncell.info.ipv4.clone())
+                let os_name_p = Paragraph::new(format!("IP:{}", self.mooncell.info.ipv4))
                     .alignment(ratatui::layout::Alignment::Center);
-                frame.render_widget(os_name_p, systeam_message[2]);
+                frame.render_widget(os_name_p, systeam_message[3]);
 
                 // cpu名称
-                let cpu_name_p = Paragraph::new(String::from("CPU:") + &self.mooncell.info.cpu_info.name.clone())
+                let cpu_name_p = Paragraph::new(format!("CPU:{}", self.mooncell.info.cpu_info.name))
                     .alignment(ratatui::layout::Alignment::Center);
-                frame.render_widget(cpu_name_p, systeam_message[3]);
+                frame.render_widget(cpu_name_p, systeam_message[4]);
 
                 // cpu温度、功耗、核心数
-                let cpu_temp_str: String;
-                match &self.mooncell.info.cpu_info.temp {
-                    Ok(temp) => cpu_temp_str = String::from("temp: ") + &temp.to_string() + &String::from("C"),
-                    Err(top_error) => cpu_temp_str = Mooncell::toperror_to_string(top_error),
-                };
+                let cpu_temp_str = format!("temp: {}C", self.mooncell.info.cpu_info.temp);
                 let cpu_temp_p = Paragraph::new(cpu_temp_str.clone())
                     .alignment(ratatui::layout::Alignment::Right);
 
-                let cpu_power_str: String;
-                match &self.mooncell.info.cpu_info.power {
-                    Ok(power) => cpu_power_str = String::from("power: ") + &power.to_string() + &String::from("W"),
-                    Err(top_error) => cpu_power_str = Mooncell::toperror_to_string(top_error),
-                }
+                let cpu_power_str = format!("power: {}W", self.mooncell.info.cpu_info.power);
                 let cpu_power_p = Paragraph::new(cpu_power_str.clone())
                     .alignment(ratatui::layout::Alignment::Center);
 
-                let cpu_cpu_siblings_str: String;
-                match &self.mooncell.info.cpu_info.siblings {
-                    Err(top_error) => cpu_cpu_siblings_str = Mooncell::toperror_to_string(&top_error),
-                    Ok(siblings) => cpu_cpu_siblings_str = String::from("CPU(s): ") + &siblings.to_string(),
-                };
+                let cpu_cpu_siblings_str = format!("cpu(s): {}", self.mooncell.info.cpu_info.siblings);
                 let cpu_siblings_p = Paragraph::new(cpu_cpu_siblings_str.clone())
                     .alignment(ratatui::layout::Alignment::Left);
 
@@ -323,98 +305,39 @@ impl App {
                 frame.render_widget(cpu_siblings_p, cpu_message[2]);
 
                 // cpu占用率
-                match &self.mooncell.info.cpu_info.usage {
-                    Ok(usage) => {
-                        match usage.get(0) {
-                            Some(_num) => {
-                                let cpu_usage_s = Sparkline::default()
-                                    .block(
-                                        Block::new()
-                                            .borders(Borders::ALL)
-                                            .title("cpu usage"),
-                                    )
-                                    .max(100)
-                                    .data(&self.mooncell.info.cpu_info.usage_history)
-                                    .style(Style::default().fg(Color::Yellow));
-                                frame.render_widget(cpu_usage_s, cpu_usage[0]);
-                            },
-                            None => {
-                                let cpu_usage_error_str = String::from("what fuck this bug?");
-                                let cpu_usage_error_p = Paragraph::new(cpu_usage_error_str)
-                                    .alignment(ratatui::layout::Alignment::Left);
-                                frame.render_widget(cpu_usage_error_p, cpu_usage[0]);
-                            },
-                        }
-                    },
-                    Err(top_error) => {
-                        let cpu_usage_error_str = Mooncell::toperror_to_string(&top_error);
-                        let cpu_usage_error_p = Paragraph::new(cpu_usage_error_str)
-                            .alignment(ratatui::layout::Alignment::Left);
-                        frame.render_widget(cpu_usage_error_p, cpu_usage[0]);
-                    },
-                }
-                
-                // cpu 核心占用率
-                match &self.mooncell.info.cpu_info.usage {
-                    Ok(usage) => {
-                        let cpu_core_usage_str = Self::deal_cpu_usage(usage.clone());
+                let cpu_usage_s = Sparkline::default()
+                    .block(
+                        Block::new().borders(Borders::ALL).title("cpu global usage"),
+                    )
+                    .max(100)
+                    .data(&self.mooncell.info.cpu_info.usage_history)
+                    .style(Style::default().fg(Color::Yellow));
+                frame.render_widget(cpu_usage_s, cpu_usage[0]);
 
-                        let cpu_core_usage_p = Paragraph::new(cpu_core_usage_str.clone())
-                            .alignment(layout::Alignment::Center);
-                        frame.render_widget(cpu_core_usage_p, cpu_usage[1]);
-                    },
-                    Err(top_error) => {
-                        let cpu_usage_error_str = Mooncell::toperror_to_string(&top_error);
-                        let cpu_usage_error_p = Paragraph::new(cpu_usage_error_str)
-                            .alignment(ratatui::layout::Alignment::Left);
-                        frame.render_widget(cpu_usage_error_p, cpu_usage[1]);
-                    },
-                }
+                // 核心占用率
+                let cpu_core_usage_str = Mooncell::deal_cpu_usage(self.mooncell.info.cpu_info.usage.clone());
+                let cpu_core_usage_p = Paragraph::new(format!("\n{}", cpu_core_usage_str))
+                    .block(
+                        Block::new().borders(Borders::ALL).title("cpu core usage"),
+                    )
+                    .alignment(layout::Alignment::Center);
+                frame.render_widget(cpu_core_usage_p, cpu_usage[1]);
 
                 // 内存占用率
-                let mut memory_total_use:f64 = 0.0;
-                let mut memory_usage_use:f64 = 0.0;
+                let memory_usage_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.usage);
+                let memory_total_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.total);
+                let memory_usage_str = format!("Memory: {}/{}GB", memory_total_number_str, memory_usage_number_str);
 
-                match &self.mooncell.info.memory_info.total {
-                    Err(top_error) => {
-                        let mut memory_total_error_str = Mooncell::toperror_to_string(top_error);
-                        memory_total_error_str = memory_total_error_str + &String::from("memory total");
-                        let memory_total_error_p = Paragraph::new(memory_total_error_str)
-                            .alignment(ratatui::layout::Alignment::Center);
-                        frame.render_widget(memory_total_error_p, memory_message[0]);
-                    },
-                    Ok(memory_total) => {
-                        memory_total_use = memory_total.clone();
-                    },
-                }
-                match &self.mooncell.info.memory_info.usage {
-                    Err(top_error) => {
-                        let mut memory_usage_error_str = Mooncell::toperror_to_string(top_error);
-                        memory_usage_error_str = memory_usage_error_str + &String::from("memory usage");
-                        let memory_usage_error_p = Paragraph::new(memory_usage_error_str)
-                            .alignment(ratatui::layout::Alignment::Left);
-                        frame.render_widget(memory_usage_error_p, memory_message[0]);
-                    },
-                    Ok(memory_usage) => {
-                        memory_usage_use = memory_usage.clone();
-                    },
-                }
-                if memory_total_use != 0.0 && memory_usage_use != 0.0 {
-                    let memory_usage_number_str = Self::float_to_string(memory_usage_use);
-                    let memory_total_number_str = Self::float_to_string(memory_total_use);
-                    let memory_usage_str = format!("Memory: {}/{}GB", memory_total_number_str, memory_usage_number_str);
-
-                    let memory_usage_s = Sparkline::default()
-                        .block(
-                            Block::new()
-                                .borders(Borders::ALL)
-                                .title(memory_usage_str),
-                        )
-                        .max(memory_total_use as u64)
-                        .data(&self.mooncell.info.memory_info.usage_history)
-                        .style(Style::default().fg(Color::Yellow));
-                    frame.render_widget(memory_usage_s, memory_message[0]);
-                }
+                let memory_usage_s = Sparkline::default()
+                    .block(
+                        Block::new()
+                            .borders(Borders::ALL)
+                            .title(memory_usage_str),
+                    )
+                    .max(self.mooncell.info.mem_info.total as u64)
+                    .data(&self.mooncell.info.mem_info.usage_history)
+                    .style(Style::default().fg(Color::Yellow));
+                frame.render_widget(memory_usage_s, memory_message[0]);
 
                 // 硬盘信息
                 let disk_usage_list = self.create_disk_list();
@@ -438,7 +361,7 @@ impl App {
                 if event::poll(Duration::from_millis(100))? {
                     match event::read()? {
                         Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                            self.handle_key_event_top(key_event)
+                            self.handle_key_event_top(key_event);
                         }
                         _ => {}
                     };
@@ -447,7 +370,7 @@ impl App {
             DisplayModel::FileManage => {
                 match event::read()? {
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        self.handle_key_event_fm(key_event)
+                        self.handle_key_event_fm(key_event);
                     }
                     _ => {}
                 };
@@ -481,39 +404,54 @@ impl App {
     
     fn handle_key_event_fm(&mut self, key_event: KeyEvent) {
         match key_event.code {
-            KeyCode::Esc => {
-                self.exit();
-            }
-            KeyCode::Up => {
-                self.file_list_previous();
-            }
-            KeyCode::Down => {
-                self.file_list_next();
-            }
+            KeyCode::Esc => self.exit(),
+            KeyCode::Up => self.file_list_previous(),
+            KeyCode::Down => self.file_list_next(),
             KeyCode::Tab => {
                 self.model = DisplayModel::Top;
                 self.file_manage_tips.clear();
             }
+            KeyCode::Backspace => { let _ = self.mooncell.file_manage.back_upper_layer(); }
+            /*使用一个列表存储选中的文件，改变目录后清除
+             * 回车第一下选中，双击——进入文件夹、预览文件(待开发)
+             * c—准备复制、x—准备剪切、v—执行
+             */
             KeyCode::Enter => {
-                if let Some(file_list_pos) = self.list_state.selected() {
-                    if let Some(file_select) = self.mooncell.file_manage.file_tree.get(file_list_pos) {
-                        self.mooncell.enter_file(&file_select.clone());
+                let now = Instant::now();
+
+                if let Some(last_time) = self.last_enter_time {
+                    if now.duration_since(last_time) <= Duration::from_millis(300) {
+                        // 双击 Enter
+                        if let Some(pos) = self.list_state.selected() {
+                            if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
+                                self.mooncell.enter_file(&file.clone());
+                                self.mooncell.clear_select();
+                            }
+                        }
+                    } else {
+                        // 单击 Enter
+                        if let Some(pos) = self.list_state.selected() {
+                            if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
+                                self.mooncell.file_manage.select_push(file.clone());
+                            }
+                        }
+                    }
+                } else {
+                    // 第一次按 Enter
+                    if let Some(pos) = self.list_state.selected() {
+                        if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
+                            self.mooncell.file_manage.select_push(file.clone());
+                        }
                     }
                 }
+
+                // 更新最后按 Enter 的时间
+                self.last_enter_time = Some(now);
             }
-            KeyCode::Char('c') => {
-                if !self.mooncell.file_manage.copy_select_file() {
-                    self.file_manage_tips = String::from("copy faill");
-                }
-            }
-            KeyCode::Char('x') => {
-                if !self.mooncell.file_manage.cut_select_file() {
-                    self.file_manage_tips = String::from("cut faill");
-                }
-            }
-            KeyCode::Backspace => {
-                let _ = self.mooncell.file_manage.back_upper_layer();
-            }
+            KeyCode::Char('c') => self.mooncell.fm_copy_ready(),
+            KeyCode::Char('x') => self.mooncell.fm_move_ready(),
+            KeyCode::Char('v') => self.mooncell.fm_perform_operations(),
+            
             _ => {}
         }
     }
@@ -532,7 +470,7 @@ impl App {
     fn file_list_next(&mut self) {
         let i = match self.list_state.selected() {
             Some(i) => {
-                if i >= self.mooncell.file_manage.file_tree.len().saturating_sub(1) {
+                if i >= self.mooncell.file_manage.get_file_list().len().saturating_sub(1) {
                     0
                 } else {
                     i + 1
@@ -546,7 +484,7 @@ impl App {
     fn file_list_previous(&mut self) {
         let i = match self.list_state.selected() {
             Some(i) => {
-                if i > self.mooncell.file_manage.file_tree.len().saturating_sub(1) {
+                if i > self.mooncell.file_manage.get_file_list().len().saturating_sub(1) {
                     0
                 } else {
                     if i == 0 {
@@ -565,74 +503,10 @@ impl App {
         self.mooncell.exit();
     }
 
-    fn deal_cpu_usage(core_usage_data: Vec<f64>) -> String {
-        let mut siblings:u8 = 0;
-        let mut str = String::new();
-        if core_usage_data.is_empty() {
-            return String::from("data is empty");
-        }
-        
-        for usage in core_usage_data {
-            if usage.is_nan() {
-                return  String::from("Data Error");
-            }
-
-            if siblings != 0 {
-                let core_number = siblings - 1;
-                str.push_str(&("cpu".to_string() + &core_number.to_string()));
-                if core_number < 10 {
-                    str.push_str("  :");
-                } else if core_number < 100{
-                    str.push_str(" :");
-                } else {
-                    str.push_str(":");
-                }
-
-                let usage_str:String;
-                let tmp_usage_str = &mut usage.to_string();
-                match tmp_usage_str.find(".") {
-                    Some(pos) => {
-                        let number_len = tmp_usage_str.len() - (pos + 1);
-                        if number_len >= 2 {
-                            usage_str = tmp_usage_str[0..pos+3].to_string();
-                        } else {
-                            for _i in 0..(2 - number_len) {
-                                tmp_usage_str.push('0');
-                            }
-                            usage_str = tmp_usage_str[0..pos+3].to_string();
-                        }
-                    },
-                    None => {
-                        usage_str = tmp_usage_str.clone() + &String::from(".00");
-                    },
-                }
-                if usage > 9.9 && usage < 100.0 {
-                    str.push_str(" ");
-                } else if usage < 10.0 {
-                    str.push_str("  ");
-                }
-
-                str.push_str(&usage_str);
-
-                if core_number % 2 != 0 {
-                    str.push('\n');
-                } else {
-                    str.push_str("    ");
-                }
-            }
-            siblings += 1;
-        }
-        return str;
-    }
-
-    fn float_to_string(value: f64) -> String {
-        let str = value.to_string();
-        match str.find('.') {
-            None => return str.clone(),
-            Some(pos) => str[..pos+2].to_string(),
-        }
-    }
-
+    /*
+     * @概述        根据内部的disks创建(&str, u64)的容器
+     * @返回值    Vec<(&str, u64)>
+     */
     pub fn create_disk_list(&mut self) -> Vec<(&str, u64)> {
         self.disk_show_list.clear();
         let mut usage_list: Vec<(&str, u64)> = Vec::new();
@@ -644,8 +518,6 @@ impl App {
                 let used = disk.all_space - disk.available_space;
                 ((used * 100.0) / disk.all_space).min(100.0) as u64
             };
-            //let name_str = format!("{}{}/{}", disk.name, disk.all_space, disk.available_space);
-            //self.disk_show_list.push(name_str);
             let tmp_data = (disk.name.as_str(), usage);
             usage_list.push(tmp_data.clone());
         }

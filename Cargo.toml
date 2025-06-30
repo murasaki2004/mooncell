@@ -1,6 +1,6 @@
 [package]
-name = "tui_test"
-version = "0.1.0"
+name = "mooncell"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -9,4 +9,4 @@ color-eyre = "0.5.11"
 crossterm = "0.29.0"
 ratatui = "0.29.0"
 chrono = "0.4.41"
-sysinfo = "0.29"
+sysinfo = "0.35.2"
