@@ -1,5 +1,6 @@
 use std::process::Command;
 use std::path::{Path, PathBuf};
+use encoding_rs::GBK;
 
 use super::TopError;
 
@@ -31,7 +32,7 @@ pub struct FileUnit {
 
 pub struct FileManage {
     now_path: PathBuf,    // 当前处理的路径
-    file_list: Vec<FileUnit>,    // 文件列表
+    file_list: Result<Vec<FileUnit>, TopError>,    // 文件列表
     select_list: Vec<FileUnit>,    // 选中的文件列表
     wait_operation_list: Vec<FileUnit>,    // 等待操作的文件列表
     file_operation: FileOperation,     // 准备进行的文件操作
@@ -79,9 +80,16 @@ impl FileManage {
         Self {
             now_path: match Self::get_pwd() {
                 Ok(str) => PathBuf::from(str),
-                Err(_) => PathBuf::from("/home"),
+                Err(_) => {
+                    #[cfg(target_os = "linux")]{
+                        PathBuf::from("/home")
+                    }
+                    #[cfg(target_os = "windows")]{
+                        PathBuf::from("C:\\")
+                    }
+                }
             },
-            file_list: Vec::new(),
+            file_list: Ok(Vec::new()),
             select_list: Vec::new(),
             wait_operation_list: Vec::new(),
             file_operation: FileOperation::Null,
@@ -123,30 +131,49 @@ impl FileManage {
             return Some(TopError::OpenError);
         }
 
-        let output = match  Command::new("ls").arg("-l").arg(path_str).output() {
-            Ok(out) => out,
-            Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
-        };
-        let output_str = match String::from_utf8(output.stdout) {
-            Ok(str) => str,
-            Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
-        };
+        let output_str: String;
+        #[cfg(target_os = "linux")] {
+            let output = match Command::new("ls").arg("-l").arg(path_str).output() {
+                Ok(out) => out,
+                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
+            };
+            output_str = match String::from_utf8(output.stdout) {
+                Ok(str) => str,
+                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
+            };
+        }
+        #[cfg(target_os = "windows")] {
+            let output = match Command::new("powershell").arg("ls").arg(path_str).output() {
+                Ok(out) => out,
+                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
+            };
 
-        self.file_list.clear();
-        let mut deal_first_line = false; 
+            let encoding = GBK;
+            let (cow, _, _) = encoding.decode(&output.stdout);
+            output_str = cow.into_owned();
+        }
+
+        let mut file_list: Vec<FileUnit> = Vec::new();
         for line in output_str.lines() {
             let data:Vec<&str> = line.split_whitespace().collect();
-            if deal_first_line {
-                if let Ok(num) = data[1].parse:: <u32>() {
-                    if num == 0 {    // 文件夹内没有文件
-                        self.file_list = Vec::new();
-                        return None;
-                    }
+            // 跳过格式不完整的行
+            #[cfg(target_os = "linux")] {
+                if data.len() < 8 {
+                    continue;
                 }
-                deal_first_line = true;
             }
-            if data.len() > 8 {   // 跳过格式不完整的行
-                continue;
+            #[cfg(target_os = "windows")] {
+                if data.len() < 3 {
+                    continue;
+                }
+                match data.get(0) {
+                    Some(str) => {
+                        if *str == "----" {
+                            continue;
+                        }
+                    }
+                    _ => continue,
+                }
             }
             
             let mut now_file_unit = FileUnit::new();
@@ -168,7 +195,18 @@ impl FileManage {
                     Err(_) => {},
                 }
             }
-            let name = data.iter().skip(7).cloned().collect::<Vec<_>>().join(" ");
+
+            let skip: i8;
+            #[cfg(target_os = "linux")] {
+                skip = 8;
+            }
+            #[cfg(target_os = "windows")] {
+                match now_file_unit.file_type {
+                    FileType::Folder => skip = 3,
+                    _ => skip = 4,
+                }
+            }
+            let name = data.iter().skip(skip as usize).cloned().collect::<Vec<_>>().join(" ");
             now_file_unit.name = name;
             now_file_unit.path = self.now_path.clone();
             now_file_unit.path.push(now_file_unit.name.clone());
@@ -186,13 +224,21 @@ impl FileManage {
                         }
                     }
                 }
-            self.file_list.push(now_file_unit);
+            file_list.push(now_file_unit);
         }
+        // 文件夹为空的情况
+        if file_list.is_empty() {
+            return Some(TopError::EmptyError)
+        }
+        self.file_list = Ok(file_list);
         return None;
     }
 
-    pub fn get_file_list(&self) -> Vec<FileUnit> {
-        self.file_list.clone()
+    pub fn get_file_list(&self) -> Option<Vec<FileUnit>> {
+        return match &self.file_list {
+            Ok(vec) => Some(vec.clone()),
+            Err(_) => None,
+        }
     }
 
     pub  fn select_operate(&mut self) -> Option<TopError> {
@@ -218,7 +264,7 @@ impl FileManage {
                     };
                 },
                 FileOperation::Delete => {
-                    ;
+                    todo!()
                 },
                 _ => {},
             }
@@ -270,21 +316,24 @@ impl FileManage {
      */
     pub fn create_name_list(&self) -> Vec<String> {
         let mut return_vec: Vec<String> = Vec::new();
-        if self.file_list.is_empty() {
-            let return_vec = vec!["empty folder".to_string()];
-            return return_vec
-        } else {
-            for deal_unit in self.file_list.iter() {
-                match deal_unit.file_type {
-                    FileType::Folder => {
-                        return_vec.push(format!("[{}]", deal_unit.name));
-                    },
-                    _ => {
-                        return_vec.push(deal_unit.name.clone());
-                    },
+        match &self.file_list {
+            Ok(vec) => {
+                for deal_unit in vec.iter() {
+                    match deal_unit.file_type {
+                        FileType::Folder => {
+                            return_vec.push(format!("[{}]", deal_unit.name));
+                        },
+                        _ => {
+                            return_vec.push(deal_unit.name.clone());
+                        },
+                    }
                 }
+                return return_vec
             }
-            return return_vec
+            Err(error) => {
+                let return_vec = vec![error.to_string()];
+                return return_vec
+            }
         }
     }
 
@@ -348,3 +397,4 @@ impl FileManage {
             .map(|s| s.to_string())  // 转换为 String
     }
 }
+

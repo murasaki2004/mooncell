@@ -1,9 +1,5 @@
-use core::{error, num};
 use std::fmt::format;
-use std::fs::{FileTimes, FileType};
-use std::isize;
-use std::{clone, default, io, process::exit};
-use std::sync::mpsc;
+use std::io;
 use std::time::{Duration, Instant};
 // 
 mod mooncell;
@@ -29,6 +25,20 @@ pub enum TopError {
     EmptyError,    // 谋一数据为空
     MissingDependentData,    // 缺少某一依赖
     ErrorInformation(String),    // 万用，包含错误信息
+}
+
+impl ToString for TopError {
+    fn to_string(&self) -> String {
+        match self {
+            TopError::EmptyError => return String::from("data lost"),
+            TopError::NotFindError => return String::from("not find"),
+            TopError::OpenError => return String::from("can`t open"),
+            TopError::ParseError => return String::from("can`t parse"),
+            TopError::ErrorInformation(str) => return str.clone(),
+            TopError::ReadError => return String::from("can`t read file"),
+            TopError::MissingDependentData => return String::from("Missing dependent data"),
+        }
+    }
 }
 
 enum DisplayModel {
@@ -151,17 +161,23 @@ impl App {
                 let mut str_file_type = String::new();
                 let mut str_file_size = String::new();
                 if let Some(file_list_pos) = self.list_state.selected() {
-                    if let Some(file_select) = self.mooncell.file_manage.get_file_list().get(file_list_pos) {
-                        str_file_name = file_select.name.clone();
-                        str_file_type = Mooncell::filetype_to_string(&file_select.file_type);
-                        if file_select.occupy < 1024.0 {
-                            str_file_size = Mooncell::float_to_string(file_select.occupy as f32) + &"KB".to_string();
-                        } else if file_select.occupy < 1048576.0 {
-                            str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0) as f32) + &"MB".to_string();
-                        } else {
-                            str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0 / 1024.0) as f32) + &"GB".to_string();
+                    match self.mooncell.file_manage.get_file_list() {
+                        Some(list) => {
+                            if let Some(file_select) = list.get(file_list_pos) {
+                                str_file_name = file_select.name.clone();
+                                str_file_type = Mooncell::filetype_to_string(&file_select.file_type);
+                                if file_select.occupy < 1024.0 {
+                                    str_file_size = Mooncell::float_to_string(file_select.occupy as f32) + &"KB".to_string();
+                                } else if file_select.occupy < 1048576.0 {
+                                    str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0) as f32) + &"MB".to_string();
+                                } else {
+                                    str_file_size = Mooncell::float_to_string((file_select.occupy / 1024.0 / 1024.0) as f32) + &"GB".to_string();
+                                }
+                            }
                         }
+                        None => {}
                     }
+
                 } else {
                     str_file_name = String::from("get name error");
                     str_file_type = String::from("get type error");
@@ -326,7 +342,7 @@ impl App {
                 // 内存占用率
                 let memory_usage_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.usage);
                 let memory_total_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.total);
-                let memory_usage_str = format!("Memory: {}/{}GB", memory_total_number_str, memory_usage_number_str);
+                let memory_usage_str = format!("Memory: {}/{}GB", memory_usage_number_str, memory_total_number_str);
 
                 let memory_usage_s = Sparkline::default()
                     .block(
@@ -418,31 +434,35 @@ impl App {
              */
             KeyCode::Enter => {
                 let now = Instant::now();
-
-                if let Some(last_time) = self.last_enter_time {
-                    if now.duration_since(last_time) <= Duration::from_millis(300) {
-                        // 双击 Enter
-                        if let Some(pos) = self.list_state.selected() {
-                            if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
-                                self.mooncell.enter_file(&file.clone());
-                                self.mooncell.clear_select();
+                match self.mooncell.file_manage.get_file_list() {
+                    Some(list) => {
+                        if let Some(last_time) = self.last_enter_time {
+                            if now.duration_since(last_time) <= Duration::from_millis(500) {
+                                // 双击 Enter
+                                if let Some(pos) = self.list_state.selected() {
+                                    if let Some(file) = list.get(pos) {
+                                        self.mooncell.enter_folder(&file.clone());
+                                        self.mooncell.clear_select();
+                                    }
+                                }
+                            } else {
+                                // 单击 Enter
+                                if let Some(pos) = self.list_state.selected() {
+                                    if let Some(file) = list.get(pos) {
+                                        self.mooncell.file_manage.select_push(file.clone());
+                                    }
+                                }
                             }
-                        }
-                    } else {
-                        // 单击 Enter
-                        if let Some(pos) = self.list_state.selected() {
-                            if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
-                                self.mooncell.file_manage.select_push(file.clone());
+                        } else {
+                            // 第一次按 Enter
+                            if let Some(pos) = self.list_state.selected() {
+                                if let Some(file) = list.get(pos) {
+                                    self.mooncell.file_manage.select_push(file.clone());
+                                }
                             }
                         }
                     }
-                } else {
-                    // 第一次按 Enter
-                    if let Some(pos) = self.list_state.selected() {
-                        if let Some(file) = self.mooncell.file_manage.get_file_list().get(pos) {
-                            self.mooncell.file_manage.select_push(file.clone());
-                        }
-                    }
+                    None => {}
                 }
 
                 // 更新最后按 Enter 的时间
@@ -467,36 +487,48 @@ impl App {
         return false;
     }
 
+    /*
+     * @概述      移动filelist的列表
+     */
     fn file_list_next(&mut self) {
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i >= self.mooncell.file_manage.get_file_list().len().saturating_sub(1) {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.list_state.select(Some(i));
-    }
-
-    fn file_list_previous(&mut self) {
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i > self.mooncell.file_manage.get_file_list().len().saturating_sub(1) {
-                    0
-                } else {
-                    if i == 0 {
-                        i
-                    } else {
-                        i - 1
+        match self.mooncell.file_manage.get_file_list() {
+            Some(vec) => {
+                let i = match self.list_state.selected() {
+                    Some(i) => {
+                        if i >= vec.len().saturating_sub(1) {
+                            0
+                        } else {
+                            i + 1
+                        }
                     }
-                }
+                    None => 0,
+                };
+                self.list_state.select(Some(i));
             }
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+            None => {}
+        }
+    }
+    fn file_list_previous(&mut self) {
+        match self.mooncell.file_manage.get_file_list() {
+            Some(vec) => {
+                let i = match self.list_state.selected() {
+                    Some(i) => {
+                        if i > vec.len().saturating_sub(1) {
+                            0
+                        } else {
+                            if i == 0 {
+                                vec.len()
+                            } else {
+                                i - 1
+                            }
+                        }
+                    }
+                    None => 0,
+                };
+                self.list_state.select(Some(i));
+            }
+            None => {}
+        }
     }
 
     fn exit(&mut self) {

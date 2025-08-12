@@ -1,12 +1,7 @@
-use std::sync::{mpsc, Arc};
-use std::time::Duration;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::result::Result::Ok;
-
 use super::TopError;
 
 mod info;
-use info::{CpuInfo, MemoryInfo, Info};
+use info::Info;
 
 mod filemanage;
 use filemanage::{FileType, FileUnit, FileManage, FileOperation};
@@ -17,7 +12,6 @@ pub struct Mooncell {
     pub logo: String,
     pub version: String,
     pub run: bool,
-    pub thread_run: Arc<AtomicBool>,
     pub info: Info,
     pub file_manage: FileManage,
 }
@@ -29,14 +23,13 @@ impl Mooncell {
             run: true,
             info: Info::new(),
             file_manage: FileManage::new(),
-            version: String::from("test-v_0.1.0 "),
-            thread_run: Arc::new(AtomicBool::new(true)),
+            version: String::from("test-v_0.3.0 "),
             logo: String::from("    __  ___                  ______     ____\n   /  |/  /___  ____  ____  / ____/__  / / /\n  / /|_/ / __ \\/ __ \\/ __ \\/ /   / _ \\/ / / \n / /  / / /_/ / /_/ / / / / /___/  __/ / /  \n/_/  /_/\\____/\\____/_/ /_/\\____/\\___/_/_/   "),
         }
     }
 
 /**********************************************文件管理**********************************************/
-    pub fn enter_file(&mut self, file: &FileUnit) {
+    pub fn enter_folder(&mut self, file: &FileUnit) {
         match file.file_type {
             FileType::Folder => {
                 let _ = self.file_manage.enter_new_folder(file);
@@ -71,23 +64,6 @@ impl Mooncell {
 
 /**********************************************其他函数**********************************************/
     /*
-    * @概述      将toperror转化成string
-    * @参数1     TopError
-    * @返回值    String
-    */
-    pub fn toperror_to_string(top_error: &TopError) -> String {
-        match top_error {
-            TopError::EmptyError => return String::from("data lost"),
-            TopError::NotFindError => return String::from("not find"),
-            TopError::OpenError => return String::from("can`t open"),
-            TopError::ParseError => return String::from("can`t parse"),
-            TopError::ErrorInformation(str) => return str.clone(),
-            TopError::ReadError => return String::from("can`t read file"),
-            TopError::MissingDependentData => return String::from("Missing dependent data"),
-        }
-    }
-
-    /*
     * @概述      将FIleType转化成string的提示
     * @参数1     TopError
     * @返回值    String
@@ -113,8 +89,6 @@ impl Mooncell {
     pub fn command_deal(&mut self, command: String) {
         if command.eq("exit") {
             self.run = false;
-        } else if command.eq("stop") {
-            self.thread_run.store(false, Ordering::Release);
         }
     }
     
@@ -122,7 +96,6 @@ impl Mooncell {
     * @概述      退出
     */
     pub fn exit(&mut self) {
-        self.thread_run.store(false, Ordering::Relaxed);
         self.run = false;
     }
 

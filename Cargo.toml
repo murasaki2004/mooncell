@@ -1,12 +1,12 @@
 [package]
 name = "mooncell"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
-rand = "0.9.1"
-color-eyre = "0.5.11"
+color-eyre = "0.6.5"
 crossterm = "0.29.0"
 ratatui = "0.29.0"
 chrono = "0.4.41"
-sysinfo = "0.35.2"
+sysinfo = "0.37.0"
+encoding_rs = "0.8"
