@@ -1,7 +1,7 @@
 use super::TopError;
 
 mod info;
-use info::Info;
+use info::{Info, DiskInfo};
 
 mod filemanage;
 use filemanage::{FileType, FileUnit, FileManage, FileOperation};
@@ -9,10 +9,8 @@ use filemanage::{FileType, FileUnit, FileManage, FileOperation};
 
 
 pub struct Mooncell {
-    pub logo: String,
-    pub version: String,
-    pub run: bool,
-    pub info: Info,
+    run: bool,
+    info: Info,
     pub file_manage: FileManage,
 }
 
@@ -23,10 +21,17 @@ impl Mooncell {
             run: true,
             info: Info::new(),
             file_manage: FileManage::new(),
-            version: String::from("test-v_0.3.0 "),
-            logo: String::from("    __  ___                  ______     ____\n   /  |/  /___  ____  ____  / ____/__  / / /\n  / /|_/ / __ \\/ __ \\/ __ \\/ /   / _ \\/ / / \n / /  / / /_/ / /_/ / / / / /___/  __/ / /  \n/_/  /_/\\____/\\____/_/ /_/\\____/\\___/_/_/   "),
         }
     }
+
+/**********************************************系统信息**********************************************/
+    pub fn info_refresh(&mut self) {
+        self.info.refresh_date();
+        self.info.refresh_disks();
+        self.info.refresh_memory_data();
+        self.info.refresh_cpu_data();
+    }
+
 
 /**********************************************文件管理**********************************************/
     pub fn enter_folder(&mut self, file: &FileUnit) {
@@ -61,7 +66,80 @@ impl Mooncell {
         }
         str
     }
+/**********************************************获取数据**********************************************/
+    pub fn is_run(&self) -> bool {
+        return self.run.clone();
+    }
 
+    pub fn get_logo() -> String {
+        return String::from("    __  ___                  ______     ____\n   /  |/  /___  ____  ____  / ____/__  / / /\n  / /|_/ / __ \\/ __ \\/ __ \\/ /   / _ \\/ / / \n / /  / / /_/ / /_/ / / / / /___/  __/ / /  \n/_/  /_/\\____/\\____/_/ /_/\\____/\\___/_/_/   ");
+    }
+
+    pub fn get_version() -> String {
+        let code_name = String::from("text");
+        let version_number = String::from("v_0.3.1");
+        return format!("{}-{}", code_name, version_number);
+    }
+
+    /*********other*********/
+    pub fn get_os_name(&self) -> String {
+        return self.info.os_name.clone();
+    }
+
+    pub fn get_host_name(&self) -> String {
+        return self.info.host_name.clone();
+    }
+
+    pub fn get_date(&self) -> String {
+        return self.info.date.clone();
+    }
+    
+    pub fn get_ip_str(&self) -> String {
+        return self.info.ipv4.clone();
+    }
+
+    /*********cpu*********/
+    pub fn get_cpu_name(&self) -> String {
+        return self.info.cpu_info.name.clone();
+    }
+
+    pub fn get_cpu_temp(&self) -> f32 {
+        return self.info.cpu_info.temp.clone();
+    }
+
+    pub fn get_cpu_power(&self) -> f32 {
+        return self.info.cpu_info.power.clone();
+    }
+
+    pub fn get_cpus(&self) -> u8 {
+        return self.info.cpu_info.siblings.clone();
+    }
+
+    pub fn get_cpu_usage(&self) -> Vec<f32> {
+        return self.info.cpu_info.usage.clone();
+    }
+
+    pub fn get_cpu_usage_history(&self) -> Vec<u64> {
+        return self.info.cpu_info.usage_history.clone();
+    }
+
+    /*********mem*********/
+    pub fn get_mem_total(&self) -> f32 {
+        return self.info.mem_info.total.clone();
+    }
+
+    pub fn get_mem_usage(&self) -> f32 {
+        return self.info.mem_info.usage.clone();
+    }
+
+    pub fn get_mem_usage_history(&self) -> Vec<u64> {
+        return self.info.mem_info.usage_history.clone();
+    }
+
+    /*********disk*********/
+    pub fn get_disks(&self) -> Vec<DiskInfo> {
+        return self.info.disks.clone();
+    }
 /**********************************************其他函数**********************************************/
     /*
     * @概述      将FIleType转化成string的提示

@@ -77,7 +77,7 @@ impl App {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         let mut count: u16 = 0;
     
-        while self.mooncell.run {
+        while self.mooncell.is_run() {
             // 绘制&捕获事件
             terminal.draw(|frame| self.draw(frame))?;
             let _ = self.handle_events();
@@ -90,7 +90,7 @@ impl App {
                     // 刷新数据
                     if count == 10 {
                         count = 0;
-                        self.mooncell.info.refresh_all();
+                        self.mooncell.info_refresh();
                     } else {
                         count = count + 1;
                     }
@@ -269,7 +269,7 @@ impl App {
                     .split(systeam_message[5]);
 
                 // logo
-                let logo_str = format!("{}\nmoooncell version {}", self.mooncell.logo, self.mooncell.version);
+                let logo_str = format!("{}\nmoooncell version {}", Mooncell::get_logo(), Mooncell::get_version());
                 let logo_p = Paragraph::new(logo_str.clone())
                         .alignment(ratatui::layout::Alignment::Center)
                         .style(Style::default())
@@ -284,35 +284,35 @@ impl App {
                 frame.render_widget(tips_p, layout_top[2]);
 
                 // 系统名称+host名称
-                let os_name_p = Paragraph::new(format!("{}@{}", self.mooncell.info.os_name, self.mooncell.info.host_name))
+                let os_name_p = Paragraph::new(format!("{}@{}", self.mooncell.get_os_name(), self.mooncell.get_host_name()))
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(os_name_p, systeam_message[1]);
                 
                 // 日期
-                let os_date_p = Paragraph::new(self.mooncell.info.date.clone())
+                let os_date_p = Paragraph::new(self.mooncell.get_date())
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(os_date_p, systeam_message[2]);
 
                 // 本机ip
-                let os_name_p = Paragraph::new(format!("IP:{}", self.mooncell.info.ipv4))
+                let os_name_p = Paragraph::new(format!("IP:{}", self.mooncell.get_ip_str()))
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(os_name_p, systeam_message[3]);
 
                 // cpu名称
-                let cpu_name_p = Paragraph::new(format!("CPU:{}", self.mooncell.info.cpu_info.name))
+                let cpu_name_p = Paragraph::new(format!("CPU:{}", self.mooncell.get_cpu_name()))
                     .alignment(ratatui::layout::Alignment::Center);
                 frame.render_widget(cpu_name_p, systeam_message[4]);
 
                 // cpu温度、功耗、核心数
-                let cpu_temp_str = format!("temp: {}C", self.mooncell.info.cpu_info.temp);
+                let cpu_temp_str = format!("temp: {}C", self.mooncell.get_cpu_temp());
                 let cpu_temp_p = Paragraph::new(cpu_temp_str.clone())
                     .alignment(ratatui::layout::Alignment::Right);
 
-                let cpu_power_str = format!("power: {}W", self.mooncell.info.cpu_info.power);
+                let cpu_power_str = format!("power: {}W", self.mooncell.get_cpu_power());
                 let cpu_power_p = Paragraph::new(cpu_power_str.clone())
                     .alignment(ratatui::layout::Alignment::Center);
 
-                let cpu_cpu_siblings_str = format!("cpu(s): {}", self.mooncell.info.cpu_info.siblings);
+                let cpu_cpu_siblings_str = format!("cpu(s): {}", self.mooncell.get_cpus());
                 let cpu_siblings_p = Paragraph::new(cpu_cpu_siblings_str.clone())
                     .alignment(ratatui::layout::Alignment::Left);
 
@@ -326,12 +326,12 @@ impl App {
                         Block::new().borders(Borders::ALL).title("cpu global usage"),
                     )
                     .max(100)
-                    .data(&self.mooncell.info.cpu_info.usage_history)
+                    .data(&self.mooncell.get_cpu_usage_history())
                     .style(Style::default().fg(Color::Yellow));
                 frame.render_widget(cpu_usage_s, cpu_usage[0]);
 
                 // 核心占用率
-                let cpu_core_usage_str = Mooncell::deal_cpu_usage(self.mooncell.info.cpu_info.usage.clone());
+                let cpu_core_usage_str = Mooncell::deal_cpu_usage(self.mooncell.get_cpu_usage());
                 let cpu_core_usage_p = Paragraph::new(format!("\n{}", cpu_core_usage_str))
                     .block(
                         Block::new().borders(Borders::ALL).title("cpu core usage"),
@@ -340,8 +340,8 @@ impl App {
                 frame.render_widget(cpu_core_usage_p, cpu_usage[1]);
 
                 // 内存占用率
-                let memory_usage_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.usage);
-                let memory_total_number_str = Mooncell::float_to_string(self.mooncell.info.mem_info.total);
+                let memory_usage_number_str = Mooncell::float_to_string(self.mooncell.get_mem_usage());
+                let memory_total_number_str = Mooncell::float_to_string(self.mooncell.get_mem_total());
                 let memory_usage_str = format!("Memory: {}/{}GB", memory_usage_number_str, memory_total_number_str);
 
                 let memory_usage_s = Sparkline::default()
@@ -350,13 +350,17 @@ impl App {
                             .borders(Borders::ALL)
                             .title(memory_usage_str),
                     )
-                    .max(self.mooncell.info.mem_info.total as u64)
-                    .data(&self.mooncell.info.mem_info.usage_history)
+                    .max(self.mooncell.get_mem_total() as u64)
+                    .data(&self.mooncell.get_mem_usage_history())
                     .style(Style::default().fg(Color::Yellow));
                 frame.render_widget(memory_usage_s, memory_message[0]);
 
                 // 硬盘信息
                 let disk_usage_list = self.create_disk_list();
+                let disk_usage_list: Vec<(&str, u64)> = disk_usage_list
+                    .iter()
+                    .map(|(s, u)| (s.as_str(), *u))
+                    .collect();
                 let disk_barchart = BarChart::default()
                     .block(Block::default().title("disk infomation").borders(Borders::ALL))
                     .data(&disk_usage_list)
@@ -536,22 +540,20 @@ impl App {
     }
 
     /*
-     * @概述        根据内部的disks创建(&str, u64)的容器
-     * @返回值    Vec<(&str, u64)>
+     * @概述      根据mooncell的disks创建Vec
+     * @返回值    Vec<(String, u64)>
      */
-    pub fn create_disk_list(&mut self) -> Vec<(&str, u64)> {
-        self.disk_show_list.clear();
-        let mut usage_list: Vec<(&str, u64)> = Vec::new();
+    pub fn create_disk_list(&mut self) -> Vec<(String, u64)> {
+        let mut usage_list: Vec<(String, u64)> = Vec::new();
 
-        for disk in &self.mooncell.info.disks {
+        for disk in self.mooncell.get_disks() {
             let usage = if disk.all_space == 0.0 {
                 0
             } else {
                 let used = disk.all_space - disk.available_space;
                 ((used * 100.0) / disk.all_space).min(100.0) as u64
             };
-            let tmp_data = (disk.name.as_str(), usage);
-            usage_list.push(tmp_data.clone());
+            usage_list.push((disk.name, usage));
         }
         return usage_list;
     }

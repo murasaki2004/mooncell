@@ -43,6 +43,16 @@ pub struct DiskInfo {
     pub available_space: f64,    // 可用空间
 }
 
+impl Clone for DiskInfo {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            all_space: self.all_space.clone(),
+            available_space: self.available_space.clone()
+        }
+    }
+}
+
 impl Info {
     pub fn new() -> Self {
         let os_name: String;
@@ -78,18 +88,11 @@ impl Info {
         }
     }
 
-    pub fn refresh_all(&mut self) {
-        self.refresh_date();
-        self.refresh_disks();
-        self.refresh_memory_data();
-        self.refresh_cpu_data();
-    }
-
     /*
      * @概述      刷新日期时间
      * @返回值    String
      */
-    fn refresh_date(&mut self) {
+    pub fn refresh_date(&mut self) {
         let local: DateTime<Local> = Local::now();
         self.date = local.format("%Y-%m-%d %H:%M").to_string();
     }
@@ -98,7 +101,7 @@ impl Info {
      * @概述      获取本机ipv4地址
      * @返回值    Option<IpAddr>
      */
-    fn get_loacl_ipadder() -> Option<IpAddr> {
+    pub fn get_loacl_ipadder() -> Option<IpAddr> {
         let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
         socket.connect("8.8.8.8:80").ok()?;
 
@@ -137,7 +140,7 @@ impl Info {
     /*
      * @概述      刷新内存数据
      */
-    fn refresh_memory_data(&mut self) {
+    pub fn refresh_memory_data(&mut self) {
         self.sys.refresh_memory();
 
         let total = self.sys.total_memory() as f32;
@@ -151,7 +154,7 @@ impl Info {
     /*
      * @概述      刷新cpu数据
      */
-    fn refresh_cpu_data(&mut self) {
+    pub fn refresh_cpu_data(&mut self) {
         self.sys.refresh_cpu_all();
 
         // cpu 占用率

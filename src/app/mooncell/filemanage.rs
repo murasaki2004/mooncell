@@ -198,7 +198,7 @@ impl FileManage {
 
             let skip: i8;
             #[cfg(target_os = "linux")] {
-                skip = 8;
+                skip = 7;
             }
             #[cfg(target_os = "windows")] {
                 match now_file_unit.file_type {
