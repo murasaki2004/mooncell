@@ -454,6 +454,7 @@ impl App {
             /*使用一个列表存储选中的文件，改变目录后清除
              * 回车第一下选中，双击——进入文件夹、预览文件(待开发)
              * c—准备复制、x—准备剪切、v—执行
+             * 这段写的太傻逼了，得改
              */
             KeyCode::Enter => {
                 let now = Instant::now();
@@ -464,9 +465,22 @@ impl App {
                                 // 双击 Enter
                                 if let Some(pos) = self.list_state.selected() {
                                     if let Some(file) = list.get(pos) {
+                                        // 尝试进入路径、失败则进入fileview打开文件
                                         if !self.mooncell.enter_folder(&file.clone()) {
-                                            self.file_view.set_path(self.mooncell.get_now_path().as_str());
-                                            self.model = DisplayModel::FileView;
+                                            if let Some(pos) = self.list_state.selected() {
+                                                if let Some(file) = list.get(pos) {
+                                                    let file_path = file.path.to_str();
+
+                                                    match file_path {
+                                                        Some(str) => {
+                                                            self.file_view.set_path(str);
+                                                            self.model = DisplayModel::FileView;
+                                                        }
+
+                                                        None => {}
+                                                    }
+                                                }
+                                            }
                                         }
                                         self.mooncell.clear_select();
                                     }
