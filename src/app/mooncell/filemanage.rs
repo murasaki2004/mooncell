@@ -96,6 +96,10 @@ impl FileManage {
         }
     }
 
+    /*
+     * @概述        向select_file容器添加新文件
+     * @参数1       FileUnit
+     */
     pub fn select_push(&mut self, file: FileUnit) {
         for select_file in &self.select_list {
             if FileUnit::is_equal(select_file.clone(), file.clone()) {
@@ -105,13 +109,16 @@ impl FileManage {
         self.select_list.push(file);
     }
 
+    /*
+     * @概述        清理选中文件
+     */
     pub fn clear_select(&mut self) {
         self.select_list.clear();
     }
 
     /*
      * @概述        准备操作select_list
-     * @参数1      FileOperation
+     * @参数1       FileOperation
      */
     pub fn select_ready_operation(&mut self, operate: FileOperation) {
         self.read_select_operate();
@@ -119,8 +126,8 @@ impl FileManage {
     }
 
     /*
-     * @概述      调用ls -l命令读取path参数路径下的内容，处理成FileUnit写入self.file_list
-     * @返回值    Option<TopError>，仅在错误时返回
+     * @概述        调用ls -l命令读取path参数路径下的内容，处理成FileUnit写入self.file_list
+     * @返回值      Option<TopError>，仅在错误时返回
      */
     pub fn refresh_file_list(&mut self) -> Option<TopError> {
         let path_str = match self.get_path_str() {
@@ -234,6 +241,10 @@ impl FileManage {
         return None;
     }
 
+    /*
+     * @概述        获取当前的文件列表
+     * @返回值      Option<Vec<FileUnit>>
+     */
     pub fn get_file_list(&self) -> Option<Vec<FileUnit>> {
         return match &self.file_list {
             Ok(vec) => Some(vec.clone()),
@@ -241,6 +252,10 @@ impl FileManage {
         }
     }
 
+    /*
+     * @概述        按照file_operation对wait_operation_list执行操作
+     * @返回值      Option<TopError>
+     */
     pub  fn select_operate(&mut self) -> Option<TopError> {
         if self.wait_operation_list.is_empty() {
             return  Some(TopError::EmptyError)
@@ -273,7 +288,7 @@ impl FileManage {
     }
 
     /*
-     * @概述       清空select_list，读进wait_operation_list
+     * @概述        清空select_list，读进wait_operation_list
      */
     fn read_select_operate(&mut self) {
         self.wait_operation_list = self.select_list.clone();
@@ -281,17 +296,17 @@ impl FileManage {
     }
 
     /*
-     * @概述      处理内部PathBuf回到上一层文件夹
+     * @概述        处理内部PathBuf回到上一层文件夹
      */
     pub fn back_upper_layer(&mut self) -> bool {
         self.now_path.pop()
     }
 
     /*
-     * @概述      处理PathBuf使进入到参数的文件夹
-     * @参数1     String，路径字符串
-     * @参数2     String，需要进入的路径的字符串
-     * @返回值    bool
+     * @概述        处理PathBuf使进入到参数的文件夹
+     * @参数1       String，路径字符串
+     * @参数2       String，需要进入的路径的字符串
+     * @返回值      bool
      */
     pub fn enter_new_folder(&mut self, folder: &FileUnit) -> bool {
         match folder.file_type {
@@ -311,8 +326,8 @@ impl FileManage {
     }
 
     /*
-     * @概述       处理内部file_list创建String容器，类型为文件夹的会特殊标记
-     * @返回值    Vec<String>
+     * @概述        处理内部file_list创建String容器，类型为文件夹的会特殊标记
+     * @返回值      Vec<String>
      */
     pub fn create_name_list(&self) -> Vec<String> {
         let mut return_vec: Vec<String> = Vec::new();
@@ -337,6 +352,10 @@ impl FileManage {
         }
     }
 
+    /*
+     * @概述        返回选中的文件列表
+     * @返回值      Vec<FileUnit>
+     */
     pub fn get_select(&self) -> Vec<FileUnit> {
         if self.wait_operation_list.is_empty() {
             self.select_list.clone()
@@ -345,14 +364,18 @@ impl FileManage {
         }
     }
 
+    /*
+     * @概述        返回当前路径的&str
+     * @返回值      Option<&str>
+     */
     pub fn get_path_str(&self) -> Option<&str> {
         self.now_path.to_str().map(|e|e)
     }
 
     /*
-     * @概述       判断字符串是否为路径
-     * @参数1     &str
-     * @返回值    bool
+     * @概述        判断字符串是否为路径
+     * @参数1       &str
+     * @返回值      bool
      */
     fn is_path(s: &str) -> bool {
         let tmp = Path::new(s);
@@ -360,9 +383,9 @@ impl FileManage {
     }
 
     /*
-     * @概述         忽略错误返回的将pathbuf转换成string
-     * @参数1      PathBuf
-     * @返回值    string
+     * @概述        忽略错误返回的将pathbuf转换成string
+     * @参数1       PathBuf
+     * @返回值      string
      */
     fn pathbuf_to_string(path: PathBuf) -> String {
         if let Some(str) = path.to_str() {
@@ -372,8 +395,8 @@ impl FileManage {
     }
 
     /*
-     * @概述         调用`pwd命令读取当前文件路径
-     * @返回值    Result<String, TopError>
+     * @概述        调用pwd命令读取当前文件路径
+     * @返回值      Result<String, TopError>
      */
     fn get_pwd() -> Result<String, TopError> {
         let output = Command::new("pwd")
@@ -389,6 +412,10 @@ impl FileManage {
         }
     }
 
+    /*
+     * @概述        获取文件名的后缀
+     * @返回值      Option<String>
+     */
     fn get_file_name_suffix(filename: String) -> Option<String> {
         Path::new(&filename)
             .extension()  // 获取后缀部分（不包括点）

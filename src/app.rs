@@ -1,9 +1,12 @@
 use std::fmt::format;
+use std::fs::File;
 use std::io;
 use std::time::{Duration, Instant};
 // 
 mod mooncell;
 use mooncell::Mooncell;
+mod fileview;
+use fileview::Fileview;
 // rataui
 use color_eyre::{eyre, owo_colors::OwoColorize, Result};
 use crossterm::{cursor::Show, event::{self, Event, KeyCode, KeyEvent, KeyEventKind}, terminal};
@@ -44,18 +47,19 @@ impl ToString for TopError {
 enum DisplayModel {
     Top,
     FileManage,
+    FileView,
 }
 
 pub struct App {
     user_input: String,
     mooncell: Mooncell,
     model: DisplayModel,
+    file_view: Fileview,
 
-    input_history: Vec<String>,    // 显示cpu占用历史
     list_state: ListState,    // 文件管理列表的转中状态
     file_manage_tips: String,    // 用于显示文件管理状态的提示
-    disk_show_list: Vec<String>,    // 临时存放disk显示字符串的容器
-    last_enter_time: Option<Instant>,
+    input_history: Vec<String>,    // 显示cpu占用历史
+    last_enter_time: Option<Instant>,    // 实现双击enter检测
 }
 impl App {
     pub fn new() -> Self {
@@ -65,11 +69,11 @@ impl App {
         Self {
             list_state: state,
             last_enter_time: None,
+            model: DisplayModel::Top, 
             user_input: String::new(),
             input_history: Vec::new(),
             mooncell: Mooncell::new(),
-            disk_show_list: Vec::new(),
-            model: DisplayModel::Top, 
+            file_view: Fileview::new(),
             file_manage_tips: String::new(),
         }
     }
@@ -94,6 +98,9 @@ impl App {
                     } else {
                         count = count + 1;
                     }
+                }
+                DisplayModel::FileView => {
+                    ;
                 }
             }
         }
@@ -332,7 +339,7 @@ impl App {
 
                 // 核心占用率
                 let cpu_core_usage_str = Mooncell::deal_cpu_usage(self.mooncell.get_cpu_usage());
-                let cpu_core_usage_p = Paragraph::new(format!("\n{}", cpu_core_usage_str))
+                let cpu_core_usage_p = Paragraph::new(cpu_core_usage_str)
                     .block(
                         Block::new().borders(Borders::ALL).title("cpu core usage"),
                     )
@@ -371,6 +378,11 @@ impl App {
                     .label_style(ratatui::style::Style::default().fg(ratatui::style::Color::Green));
                 frame.render_widget(disk_barchart, memory_message[1]);
             },
+
+            // ************************** 文件浏览模式 ************************** //
+            DisplayModel::FileView => {
+                self.file_view.draw(frame);
+            }
         }
     }
 
@@ -391,6 +403,14 @@ impl App {
                 match event::read()? {
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                         self.handle_key_event_fm(key_event);
+                    }
+                    _ => {}
+                };
+            }
+            DisplayModel::FileView => {
+                match event::read()? {
+                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                        self.handle_key_event_fv(key_event);
                     }
                     _ => {}
                 };
@@ -421,7 +441,6 @@ impl App {
             }
         }
     }
-    
     fn handle_key_event_fm(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Esc => self.exit(),
@@ -445,7 +464,10 @@ impl App {
                                 // 双击 Enter
                                 if let Some(pos) = self.list_state.selected() {
                                     if let Some(file) = list.get(pos) {
-                                        self.mooncell.enter_folder(&file.clone());
+                                        if !self.mooncell.enter_folder(&file.clone()) {
+                                            self.file_view.set_path(self.mooncell.get_now_path().as_str());
+                                            self.model = DisplayModel::FileView;
+                                        }
                                         self.mooncell.clear_select();
                                     }
                                 }
@@ -476,6 +498,13 @@ impl App {
             KeyCode::Char('x') => self.mooncell.fm_move_ready(),
             KeyCode::Char('v') => self.mooncell.fm_perform_operations(),
             
+            _ => {}
+        }
+    }
+    fn handle_key_event_fv(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Esc => self.model = DisplayModel::FileManage,
+
             _ => {}
         }
     }

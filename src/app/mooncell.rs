@@ -14,7 +14,6 @@ pub struct Mooncell {
     pub file_manage: FileManage,
 }
 
-
 impl Mooncell {
     pub fn new() -> Self {
         Self {
@@ -34,12 +33,13 @@ impl Mooncell {
 
 
 /**********************************************文件管理**********************************************/
-    pub fn enter_folder(&mut self, file: &FileUnit) {
+    pub fn enter_folder(&mut self, file: &FileUnit) -> bool {
         match file.file_type {
             FileType::Folder => {
                 let _ = self.file_manage.enter_new_folder(file);
+                return true
             },
-            _ => { },
+            _ => return false,
         }
     }
 
@@ -66,7 +66,15 @@ impl Mooncell {
         }
         str
     }
+
+    pub fn get_now_path(&self) -> String {
+        match self.file_manage.get_path_str() {
+            None => return String::from("get path error"),
+            Some(path) => return path.to_string(),
+        }
+    }
 /**********************************************获取数据**********************************************/
+    /*********other*********/
     pub fn is_run(&self) -> bool {
         return self.run.clone();
     }
@@ -81,7 +89,6 @@ impl Mooncell {
         return format!("{}-{}", code_name, version_number);
     }
 
-    /*********other*********/
     pub fn get_os_name(&self) -> String {
         return self.info.os_name.clone();
     }
@@ -142,9 +149,9 @@ impl Mooncell {
     }
 /**********************************************其他函数**********************************************/
     /*
-    * @概述      将FIleType转化成string的提示
-    * @参数1     TopError
-    * @返回值    String
+    * @概述        将FIleType转化成string的提示
+    * @参数1       TopError
+    * @返回值      String
     */
     pub fn filetype_to_string(file_type: &FileType) -> String {
         match file_type {
@@ -161,8 +168,8 @@ impl Mooncell {
     }
     
     /*
-    * @概述      处理一部分指令
-    * @参数1     String
+    * @概述        处理一部分指令
+    * @参数1       String
     */
     pub fn command_deal(&mut self, command: String) {
         if command.eq("exit") {
@@ -171,15 +178,15 @@ impl Mooncell {
     }
     
     /*
-    * @概述      退出
+    * @概述        退出
     */
     pub fn exit(&mut self) {
         self.run = false;
     }
 
     /*
-     * @概述      将一个f32容器按一定格式处理成String
-     * @参数1    Vec<f32>
+     * @概述        将一个f32容器按一定格式处理成String
+     * @参数1       Vec<f32>
      */
     pub fn deal_cpu_usage(core_usage_data: Vec<f32>) -> String {
         let mut siblings:u8 = 0;
@@ -243,7 +250,7 @@ impl Mooncell {
 
     /*
      * @概述        将f32仅保留后两位小数转换成String
-     * @返回值    String
+     * @返回值      String
      */
     pub fn float_to_string(value: f32) -> String {
         let str = value.to_string();

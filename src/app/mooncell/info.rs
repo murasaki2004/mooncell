@@ -89,8 +89,8 @@ impl Info {
     }
 
     /*
-     * @概述      刷新日期时间
-     * @返回值    String
+     * @概述        刷新日期时间
+     * @返回值      String
      */
     pub fn refresh_date(&mut self) {
         let local: DateTime<Local> = Local::now();
@@ -98,8 +98,8 @@ impl Info {
     }
 
     /*
-     * @概述      获取本机ipv4地址
-     * @返回值    Option<IpAddr>
+     * @概述        获取本机ipv4地址
+     * @返回值      Option<IpAddr>
      */
     pub fn get_loacl_ipadder() -> Option<IpAddr> {
         let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
@@ -110,7 +110,7 @@ impl Info {
     }
 
     /* 
-     * @概述      通过sysinfo查询系统下的所有硬盘
+     * @概述        通过sysinfo查询系统下的所有硬盘
      */
     pub fn refresh_disks(&mut self) {
         self.disks.clear();
@@ -138,7 +138,7 @@ impl Info {
     }
 
     /*
-     * @概述      刷新内存数据
+     * @概述        刷新内存数据
      */
     pub fn refresh_memory_data(&mut self) {
         self.sys.refresh_memory();
@@ -152,7 +152,7 @@ impl Info {
     }
 
     /*
-     * @概述      刷新cpu数据
+     * @概述        刷新cpu数据
      */
     pub fn refresh_cpu_data(&mut self) {
         self.sys.refresh_cpu_all();
@@ -192,7 +192,7 @@ impl CpuInfo {
 
     /*
      * @概述        读取文件数据返回cpu温度信息
-     * @返回值    Result<f64, TopError>
+     * @返回值      Result<f64, TopError>
      */
     fn refresh_temp(&mut self) {
         // 开文件
@@ -219,8 +219,8 @@ impl CpuInfo {
 
     /*
      * @概述        调用upower读取功耗信息
-     * @返回值    Result<f64, TopError>
-     * @碎碎念    真抽象，因为去掉返回值直接赋值self.power,导致整了一堆嵌套，烦死了
+     * @返回值      Result<f64, TopError>
+     * @碎碎念      真抽象，因为去掉返回值直接赋值self.power,导致整了一堆嵌套，烦死了
      */
     fn refresh_power(&mut self) {
         // 执行 upower --dump 命令
@@ -249,7 +249,7 @@ impl CpuInfo {
     }
 
     /*
-     * @概述      向usage_history中添加数据，满50条数据后会顶掉前面的
+     * @概述        向usage_history中添加数据，满50条数据后会顶掉前面的
      */
     fn usage_history_push(&mut self) {
         if let Some(data) = self.usage.get(0) {
@@ -270,7 +270,7 @@ impl MemoryInfo {
     }
 
     /*
-     * @概述      向usage_history中添加数据，满50条数据后会顶掉前面的
+     * @概述        向usage_history中添加数据，满50条数据后会顶掉前面的
      */
     pub fn usage_history_push(&mut self) {
         if self.usage_history.len() < 50 {
