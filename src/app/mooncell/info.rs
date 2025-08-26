@@ -7,8 +7,6 @@ use std::process::Command;
 use chrono::{DateTime, Local};
 use std::net::{UdpSocket, IpAddr};
 
-use super::TopError; 
-
 pub struct Info {
     sys: System,
     pub ipv4: String,

@@ -100,7 +100,12 @@ impl App {
                     }
                 }
                 DisplayModel::FileView => {
-                    ;
+                    match crossterm::terminal::size() {
+                        Ok(size) => {
+                            self.file_view.refresh_termainal_size(size);
+                        }
+                        Err(_) => { }
+                    }
                 }
             }
         }
@@ -508,6 +513,7 @@ impl App {
                 // 更新最后按 Enter 的时间
                 self.last_enter_time = Some(now);
             }
+            KeyCode::Delete => self.mooncell.fm_del_ready(),
             KeyCode::Char('c') => self.mooncell.fm_copy_ready(),
             KeyCode::Char('x') => self.mooncell.fm_move_ready(),
             KeyCode::Char('v') => self.mooncell.fm_perform_operations(),

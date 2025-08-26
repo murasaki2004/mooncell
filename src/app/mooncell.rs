@@ -51,6 +51,10 @@ impl Mooncell {
         self.file_manage.select_ready_operation(FileOperation::Move);
     }
 
+    pub fn fm_del_ready(&mut self) {
+        self.file_manage.select_ready_operation(FileOperation::Delete);
+    }
+
     pub fn fm_perform_operations(&mut self) {
         self.file_manage.select_operate();
     }
@@ -66,13 +70,6 @@ impl Mooncell {
         }
         str
     }
-
-    pub fn get_now_path(&self) -> String {
-        match self.file_manage.get_path_str() {
-            None => return String::from("get path error"),
-            Some(path) => return path.to_string(),
-        }
-    }
 /**********************************************获取数据**********************************************/
     /*********other*********/
     pub fn is_run(&self) -> bool {
@@ -85,7 +82,7 @@ impl Mooncell {
 
     pub fn get_version() -> String {
         let code_name = String::from("text");
-        let version_number = String::from("v_0.3.1");
+        let version_number = String::from("v_0.3.3");
         return format!("{}-{}", code_name, version_number);
     }
 

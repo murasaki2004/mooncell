@@ -1,26 +1,28 @@
-use super::TopError;
-
 use std::path::PathBuf;
-use std::fs::{File, read_to_string};
+use std::fs::read_to_string;
 use ratatui::{
-    Frame,
-    layout::{Layout, Direction, Constraint},
-    widgets::{Paragraph, Block},
+    layout::{Constraint, Direction, Layout}, widgets::{Block, Paragraph}, Frame
 };
 
 pub struct Fileview {
     path: PathBuf,
+    terminal_size: (u16, u16),
 }
 
 impl Fileview {
     pub fn new() -> Self {
         Self {
-            path: PathBuf::new()
+            path: PathBuf::new(),
+            terminal_size: (0, 0),
         }
     }
 
     pub fn set_path(&mut self, path: &str) {
         self.path = PathBuf::from(path);
+    }
+
+    pub fn refresh_termainal_size(&mut self, size: (u16, u16)) {
+        self.terminal_size = size;
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -35,6 +37,7 @@ impl Fileview {
             Err(e) => String::from(format!("file error\n{}", e.to_string())),
             Ok(str) => str,
         };
+        let file_content_str = self.str_display_format(file_content_str);
         let file_content_p = Paragraph::new(file_content_str.clone())
             .block(Block::bordered().title(self.get_path_str()));
         frame.render_widget(file_content_p, layout_fileview[0]);
@@ -44,6 +47,55 @@ impl Fileview {
         return match self.path.to_str() {
             None => String::from("get path error"),
             Some(str) => str.to_string(),
+        }
+    }
+
+    fn str_display_format(&self, str: String) -> String {
+        // 添加行号
+        let numbered_str = str
+            .lines()                         // 将内容按行分割
+            .enumerate()                    // 枚举行号（从0开始）
+            .map(|(i, line)| format!("{}|   {}", Self::number_format(i + 1), line)) // 添加行号并格式化
+            .collect::<Vec<String>>()       // 收集为 Vec<String>
+            .join("\n");                    // 用换行符连接成最终字符串
+
+        // 按照终端尺寸对内容分割
+        let mut format_str = String::new();
+        let mut first_line = true;
+        for line in numbered_str.lines() {
+            if line.len() > (self.terminal_size.0 - 9) as usize {
+                let mut line_length = 0;
+                let mut new_line = String::new();
+                for ch in line.chars() {
+                    line_length += 1;
+                    if line_length == (self.terminal_size.0 - 9) {
+                        new_line.push_str(&format!("\n       {}", ch));
+                        line_length = 1;
+                    } else {
+                        new_line.push(ch);
+                    }
+                }
+                format_str.push_str(&new_line);
+            } else {
+                if first_line {
+                    first_line = false;
+                } else {
+                    format_str.push('\n');
+                }
+                format_str.push_str(line);
+            }
+        }
+
+        return format_str;
+    }
+
+    fn number_format(number: usize) -> String {
+        if number < 10 {
+            return format!("{}  ", number);
+        } else if number < 100 {
+            return format!("{} ", number);
+        } else {
+            return format!("{}", number);
         }
     }
 }

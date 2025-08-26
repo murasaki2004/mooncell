@@ -1,6 +1,5 @@
 use std::process::Command;
 use std::path::{Path, PathBuf};
-use encoding_rs::GBK;
 
 use super::TopError;
 

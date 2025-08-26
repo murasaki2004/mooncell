@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "mooncell"
-version = "0.3.0"
+version = "0.3.3"
 dependencies = [
  "chrono",
  "color-eyre",
