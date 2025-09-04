@@ -11,7 +11,7 @@ use filemanage::{FileType, FileUnit, FileManage, FileOperation};
 pub struct Mooncell {
     run: bool,
     info: Info,
-    pub file_manage: FileManage,
+    file_manage: FileManage,
 }
 
 impl Mooncell {
@@ -33,6 +33,50 @@ impl Mooncell {
 
 
 /**********************************************文件管理**********************************************/
+    pub fn refresh_file_list(&mut self) {
+        self.file_manage.refresh_file_list();
+    }
+
+    pub fn get_file_list(&self) -> Option<Vec<FileUnit>> {
+        return self.file_manage.get_file_list();
+    }
+
+    pub fn select_push(&mut self, file: FileUnit) {
+        self.file_manage.select_push(file);
+    }
+
+    pub fn back_upper_layer(&mut self) {
+        self.file_manage.back_upper_layer();
+    }
+
+    pub fn get_path_str(&mut self) -> Option<&str> {
+        self.file_manage.get_path_str()
+    }
+
+    /*
+     * @概述        处理file_manager的file_list创建String容器，类型为文件夹则使用[]标记
+     * @返回值      Vec<String>
+     */
+    pub fn fm_create_name_list(&self) -> Vec<String> {
+        let mut return_vec: Vec<String> = Vec::new();
+        if let Some(file_list) = self.file_manage.get_file_list() {
+            for deal_unit in file_list.iter() {
+                match deal_unit.file_type {
+                    FileType::Folder => {
+                        return_vec.push(format!("[{}]", deal_unit.name));
+                    },
+                    _ => {
+                        return_vec.push(deal_unit.name.clone());
+                    },
+                }
+            }
+            return return_vec
+        } else {
+            let return_vec = vec!["get file_list error".to_string()];
+            return return_vec
+        }
+    }
+
     pub fn enter_folder(&mut self, file: &FileUnit) -> bool {
         match file.file_type {
             FileType::Folder => {

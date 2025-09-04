@@ -88,7 +88,7 @@ impl App {
             
             match self.model {
                 DisplayModel::FileManage => {
-                    self.mooncell.file_manage.refresh_file_list();
+                    self.mooncell.refresh_file_list();
                 },
                 DisplayModel::Top => {
                     // 刷新数据
@@ -152,8 +152,8 @@ impl App {
                 frame.render_widget(tips_p, layout_all[1]);
 
                 // 文件列表
-                let tree_str_list = self.mooncell.file_manage.create_name_list();
-                let path_str = match self.mooncell.file_manage.get_path_str() {
+                let tree_str_list = self.mooncell.fm_create_name_list();
+                let path_str = match self.mooncell.get_path_str() {
                     Some(str) => str.to_string(),
                     None => "...".to_string(),
                 };
@@ -173,7 +173,7 @@ impl App {
                 let mut str_file_type = String::new();
                 let mut str_file_size = String::new();
                 if let Some(file_list_pos) = self.list_state.selected() {
-                    match self.mooncell.file_manage.get_file_list() {
+                    match self.mooncell.get_file_list() {
                         Some(list) => {
                             if let Some(file_select) = list.get(file_list_pos) {
                                 str_file_name = file_select.name.clone();
@@ -455,7 +455,7 @@ impl App {
                 self.model = DisplayModel::Top;
                 self.file_manage_tips.clear();
             }
-            KeyCode::Backspace => { let _ = self.mooncell.file_manage.back_upper_layer(); }
+            KeyCode::Backspace => { let _ = self.mooncell.back_upper_layer(); }
             /*使用一个列表存储选中的文件，改变目录后清除
              * 回车第一下选中，双击——进入文件夹、预览文件(待开发)
              * c—准备复制、x—准备剪切、v—执行
@@ -463,7 +463,7 @@ impl App {
              */
             KeyCode::Enter => {
                 let now = Instant::now();
-                match self.mooncell.file_manage.get_file_list() {
+                match self.mooncell.get_file_list() {
                     Some(list) => {
                         if let Some(last_time) = self.last_enter_time {
                             if now.duration_since(last_time) <= Duration::from_millis(500) {
@@ -494,7 +494,7 @@ impl App {
                                 // 单击 Enter
                                 if let Some(pos) = self.list_state.selected() {
                                     if let Some(file) = list.get(pos) {
-                                        self.mooncell.file_manage.select_push(file.clone());
+                                        self.mooncell.select_push(file.clone());
                                     }
                                 }
                             }
@@ -502,7 +502,7 @@ impl App {
                             // 第一次按 Enter
                             if let Some(pos) = self.list_state.selected() {
                                 if let Some(file) = list.get(pos) {
-                                    self.mooncell.file_manage.select_push(file.clone());
+                                    self.mooncell.select_push(file.clone());
                                 }
                             }
                         }
@@ -523,7 +523,12 @@ impl App {
     }
     fn handle_key_event_fv(&mut self, key_event: KeyEvent) {
         match key_event.code {
-            KeyCode::Esc => self.model = DisplayModel::FileManage,
+            KeyCode::Backspace => {
+                self.model = DisplayModel::FileManage;
+                self.file_view.start_number_rezero();
+            }
+            KeyCode::Up => self.file_view.start_number_up(),
+            KeyCode::Down => self.file_view.start_number_down(),
 
             _ => {}
         }
@@ -544,7 +549,7 @@ impl App {
      * @概述      移动filelist的列表
      */
     fn file_list_next(&mut self) {
-        match self.mooncell.file_manage.get_file_list() {
+        match self.mooncell.get_file_list() {
             Some(vec) => {
                 let i = match self.list_state.selected() {
                     Some(i) => {
@@ -562,7 +567,7 @@ impl App {
         }
     }
     fn file_list_previous(&mut self) {
-        match self.mooncell.file_manage.get_file_list() {
+        match self.mooncell.get_file_list() {
             Some(vec) => {
                 let i = match self.list_state.selected() {
                     Some(i) => {

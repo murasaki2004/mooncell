@@ -7,6 +7,7 @@ use ratatui::{
 pub struct Fileview {
     path: PathBuf,
     terminal_size: (u16, u16),
+    start_number: usize,
 }
 
 impl Fileview {
@@ -14,7 +15,22 @@ impl Fileview {
         Self {
             path: PathBuf::new(),
             terminal_size: (0, 0),
+            start_number: 1,
         }
+    }
+
+    pub fn start_number_rezero(&mut self) {
+        self.start_number = 1;
+    }
+
+    pub fn start_number_up(&mut self) {
+        if self.start_number > 1 {
+            self.start_number -= 1;
+        }
+    }
+
+    pub fn start_number_down(&mut self) {
+        self.start_number += 1;
     }
 
     pub fn set_path(&mut self, path: &str) {
@@ -61,8 +77,7 @@ impl Fileview {
 
         // 按照终端尺寸对内容分割
         let mut format_str = String::new();
-        let mut first_line = true;
-        for line in numbered_str.lines() {
+        for line in numbered_str.split_inclusive('\n') {
             if line.len() > (self.terminal_size.0 - 9) as usize {
                 let mut line_length = 0;
                 let mut new_line = String::new();
@@ -77,16 +92,21 @@ impl Fileview {
                 }
                 format_str.push_str(&new_line);
             } else {
-                if first_line {
-                    first_line = false;
-                } else {
-                    format_str.push('\n');
-                }
                 format_str.push_str(line);
             }
         }
 
-        return format_str;
+        // 删去起始前的内容
+        let mut count: usize = 1;
+        let mut neo_format_str = String::new();
+        for line in format_str.split_inclusive('\n') {
+            if count >= self.start_number {
+                neo_format_str.push_str(line);
+            }
+            count += 1;
+        }
+
+        return neo_format_str;
     }
 
     fn number_format(number: usize) -> String {

@@ -1,7 +1,21 @@
 use std::process::Command;
 use std::path::{Path, PathBuf};
+use std::fs;
+use std::ffi::OsString;
 
 use super::TopError;
+
+/*
+ * @概述        FileManage是整个功能的集合体
+ *              FileUnit用来表示单个文件/文件夹
+ *              FileType和FileOperation都仅起到辅助作用
+
+ *              整体逻辑：
+ *              self(指代filemanager)的file_list用来存储now_path下的内容，需要调用refresh_file_list刷新
+ *              如果需要对文件操作需要先通过select_push将待操作的fileunit加入self的select_list
+ *              因为复制/剪切需要切换目录，所以又将select_list读进wait_operation_list等待粘贴
+ *              最终由select_operate来按照self.file_operation执行操作
+ */
 
 pub enum FileType {
     Normal,
@@ -125,123 +139,59 @@ impl FileManage {
     }
 
     /*
-     * @概述        调用ls -l命令读取path参数路径下的内容，处理成FileUnit写入self.file_list
+     * @概述        调用fs::read_dir读取self.now_path路径下的内容，处理成FileUnit写入self.file_list
      * @返回值      Option<TopError>，仅在错误时返回
      */
     pub fn refresh_file_list(&mut self) -> Option<TopError> {
-        let path_str = match self.get_path_str() {
-            Some(str) => str.to_string(),
-            None => return Some(TopError::ParseError),
-        };
-        if Self::is_path(&path_str) == false {
+        if let Some(path_str) = self.get_path_str() {
+            match fs::read_dir(&path_str) {
+                Ok(entries) => {
+                    let mut file_list: Vec<FileUnit> = Vec::new();
+                    for entry in entries {
+                        let mut fileunit = FileUnit::new();
+                        match entry {
+                            Ok(entry) => {
+                                fileunit.name = Self::osstring_to_string(entry.file_name());
+
+                                // 匹配文件类型
+                                let path = entry.path();
+                                fileunit.path = entry.path();
+                                if path.is_dir() {
+                                    fileunit.file_type = FileType::Folder;
+                                } else {
+                                    if let Some(suffix) = Self::get_file_name_suffix(fileunit.name.clone()) {
+                                        match suffix.as_str() {
+                                            "txt" | "doc" | "docx" => fileunit.file_type = FileType::Document,
+                                            "mp4" => fileunit.file_type = FileType::Video,
+                                            "mp3" | "wav" => fileunit.file_type = FileType::Audio,
+                                            "zip" | "7z" | "rar" => fileunit.file_type = FileType::Zip,
+                                            "md" => fileunit.file_type = FileType::Markdown,
+                                            "png" | "jpg" | "jpeg" => fileunit.file_type = FileType::Image,
+                                            "rs" | "c" | "py" | "cpp" | "h" => fileunit.file_type = FileType::Code,
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                file_list.push(fileunit);
+                            }
+                            Err(_) => break
+                        }
+                    }
+                    if file_list.is_empty() {
+                        return Some(TopError::EmptyError)
+                    }
+                    self.file_list = Ok(file_list);
+                    return None;
+                }
+                Err(_) => return Some(TopError::ReadError)
+            }
+        } else {
             return Some(TopError::OpenError);
         }
-
-        let output_str: String;
-        #[cfg(target_os = "linux")] {
-            let output = match Command::new("ls").arg("-l").arg(path_str).output() {
-                Ok(out) => out,
-                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
-            };
-            output_str = match String::from_utf8(output.stdout) {
-                Ok(str) => str,
-                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
-            };
-        }
-        #[cfg(target_os = "windows")] {
-            let output = match Command::new("powershell").arg("ls").arg(path_str).output() {
-                Ok(out) => out,
-                Err(e) => return Some(TopError::ErrorInformation(e.to_string())),
-            };
-
-            let encoding = GBK;
-            let (cow, _, _) = encoding.decode(&output.stdout);
-            output_str = cow.into_owned();
-        }
-
-        let mut file_list: Vec<FileUnit> = Vec::new();
-        for line in output_str.lines() {
-            let data:Vec<&str> = line.split_whitespace().collect();
-            // 跳过格式不完整的行
-            #[cfg(target_os = "linux")] {
-                if data.len() < 8 {
-                    continue;
-                }
-            }
-            #[cfg(target_os = "windows")] {
-                if data.len() < 3 {
-                    continue;
-                }
-                match data.get(0) {
-                    Some(str) => {
-                        if *str == "----" {
-                            continue;
-                        }
-                    }
-                    _ => continue,
-                }
-            }
-            
-            let mut now_file_unit = FileUnit::new();
-            if let Some(str) = line.chars().next() {
-                if str == '-' {
-                    now_file_unit.file_type = FileType::Normal;
-                } else if str == 'd' {
-                    now_file_unit.file_type = FileType::Folder;
-                } else {
-                    continue;
-                }
-            }
-
-            if let Some(str_size) = data.get(4) {
-                match str_size.trim().parse::<u64>() {
-                    Ok(num) => {
-                        now_file_unit.occupy = num as f64 / 1024.0;
-                    },
-                    Err(_) => {},
-                }
-            }
-
-            let skip: i8;
-            #[cfg(target_os = "linux")] {
-                skip = 7;
-            }
-            #[cfg(target_os = "windows")] {
-                match now_file_unit.file_type {
-                    FileType::Folder => skip = 3,
-                    _ => skip = 4,
-                }
-            }
-            let name = data.iter().skip(skip as usize).cloned().collect::<Vec<_>>().join(" ");
-            now_file_unit.name = name;
-            now_file_unit.path = self.now_path.clone();
-            now_file_unit.path.push(now_file_unit.name.clone());
-                if let FileType::Normal = now_file_unit.file_type {
-                    if let Some(suffix) = Self::get_file_name_suffix(now_file_unit.name.clone()) {
-                        match suffix.as_str() {
-                            "txt" | "doc" | "docx" => now_file_unit.file_type = FileType::Document,
-                            "mp4" => now_file_unit.file_type = FileType::Video,
-                            "mp3" | "wav" => now_file_unit.file_type = FileType::Audio,
-                            "zip" | "7z" | "rar" => now_file_unit.file_type = FileType::Zip,
-                            "md" => now_file_unit.file_type = FileType::Markdown,
-                            "png" | "jpg" | "jpeg" => now_file_unit.file_type = FileType::Image,
-                            "rs" | "c" | "py" | "cpp" | "h" => now_file_unit.file_type = FileType::Code,
-                            _ => {}
-                        }
-                    }
-                }
-            file_list.push(now_file_unit);
-        }
-        // 文件夹为空的情况
-        if file_list.is_empty() {
-            return Some(TopError::EmptyError)
-        }
-        self.file_list = Ok(file_list);
-        return None;
     }
 
     /*
-     * @概述        获取当前的文件列表
+     * @概述        获取当前的file_list
      * @返回值      Option<Vec<FileUnit>>
      */
     pub fn get_file_list(&self) -> Option<Vec<FileUnit>> {
@@ -255,7 +205,7 @@ impl FileManage {
      * @概述        按照file_operation对wait_operation_list执行操作
      * @返回值      Option<TopError>
      */
-    pub  fn select_operate(&mut self) -> Option<TopError> {
+    pub fn select_operate(&mut self) -> Option<TopError> {
         if self.wait_operation_list.is_empty() {
             return  Some(TopError::EmptyError)
         }
@@ -325,33 +275,6 @@ impl FileManage {
     }
 
     /*
-     * @概述        处理内部file_list创建String容器，类型为文件夹的会特殊标记
-     * @返回值      Vec<String>
-     */
-    pub fn create_name_list(&self) -> Vec<String> {
-        let mut return_vec: Vec<String> = Vec::new();
-        match &self.file_list {
-            Ok(vec) => {
-                for deal_unit in vec.iter() {
-                    match deal_unit.file_type {
-                        FileType::Folder => {
-                            return_vec.push(format!("[{}]", deal_unit.name));
-                        },
-                        _ => {
-                            return_vec.push(deal_unit.name.clone());
-                        },
-                    }
-                }
-                return return_vec
-            }
-            Err(error) => {
-                let return_vec = vec![error.to_string()];
-                return return_vec
-            }
-        }
-    }
-
-    /*
      * @概述        返回选中的文件列表
      * @返回值      Vec<FileUnit>
      */
@@ -369,16 +292,6 @@ impl FileManage {
      */
     pub fn get_path_str(&self) -> Option<&str> {
         self.now_path.to_str().map(|e|e)
-    }
-
-    /*
-     * @概述        判断字符串是否为路径
-     * @参数1       &str
-     * @返回值      bool
-     */
-    fn is_path(s: &str) -> bool {
-        let tmp = Path::new(s);
-        tmp.exists()
     }
 
     /*
@@ -421,6 +334,18 @@ impl FileManage {
             .and_then(|ext| ext.to_str())  // 转换为字符串
             .filter(|s| !s.is_empty())  // 过滤掉空字符串
             .map(|s| s.to_string())  // 转换为 String
+    }
+
+    /*
+     * @概述        将OsString强制转换成String
+     * @参数1       str: OsString
+     * @返回值      String
+     */
+    fn osstring_to_string(str: OsString) -> String {
+        match str.to_str() {
+            Some(new_str) => return new_str.to_string(),
+            None => return String::from("parse fail"),
+        }
     }
 }
 
